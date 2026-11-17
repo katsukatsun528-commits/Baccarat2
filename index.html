@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e3a31">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="バカラ記録">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<title>バカラ記録帳</title>
+<style>
+/* layout: one narrow column; bet and card pad fixed at the bottom, probabilities, road, history and stats scroll above */
+:root {
+  --felt: #0e3a31;
+  --panel: #134a3d;
+  --line: #2a6a58;
+  --ink: #f3efe3;
+  --muted: #a3bdb1;
+  --banker: #5b9bf0;
+  --player: #ef6a60;
+  --tie: #52c795;
+  --gold: #e6c56e;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--felt); color: var(--ink); }
+body { font-family: "Hiragino Sans", "Noto Sans JP", "Yu Gothic", system-ui, sans-serif; line-height: 1.5; -webkit-text-size-adjust: 100%; }
+.wrap { max-width: 560px; margin: 0 auto; padding: calc(16px + env(safe-area-inset-top)) 16px 300px; display: flex; flex-direction: column; gap: 14px; }
+h1 { font-size: 20px; margin: 0; letter-spacing: .02em; }
+.sub { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+h2 { font-size: 13px; margin: 0 0 8px; color: var(--gold); letter-spacing: .08em; font-weight: 600; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row.between { justify-content: space-between; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { background: transparent; border: 0; padding: 7px 10px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--gold); color: #1b2a22; font-weight: 700; }
+.seg button:disabled { opacity: .35; cursor: not-allowed; }
+.ghost { white-space: nowrap; background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; font-size: 13px; }
+.ghost.armed { border-color: var(--gold); color: var(--gold); }
+.ghost:disabled { opacity: .4; cursor: not-allowed; }
+.note { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+
+/* hand slots */
+.slots { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.side { border-radius: 10px; padding: 8px; background: rgba(0,0,0,.18); border-top: 3px solid; }
+.side.p { border-color: var(--player); } .side.b { border-color: var(--banker); }
+.side h3 { margin: 0 0 6px; font-size: 13px; display: flex; justify-content: space-between; align-items: baseline; }
+.side.p h3 { color: var(--player); } .side.b h3 { color: var(--banker); }
+.side .tot { font-size: 20px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.cards { display: flex; gap: 6px; }
+.slot { flex: 1; height: 60px; border-radius: 8px; border: 1px dashed var(--line); display: grid; place-items: center; font-size: 18px; font-weight: 700; color: var(--muted); background: rgba(255,255,255,.03); }
+.slot.filled { background: #f6f1e4; color: #1d2a24; border: 1px solid #f6f1e4; }
+.slot.next { border: 2px solid var(--gold); color: var(--gold); }
+.slot.old { opacity: .55; }
+.status { margin: 10px 0 0; font-size: 14px; min-height: 2.8em; }
+.status b { color: var(--gold); }
+.betbadge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-left: 6px; }
+.betbadge.b { border-color: var(--banker); color: var(--banker); } .betbadge.p { border-color: var(--player); color: var(--player); }
+.recent { display: flex; gap: 4px; align-items: center; margin-top: 4px; min-height: 16px; font-size: 12px; color: var(--muted); }
+.recent i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+
+/* probabilities */
+.pr { display: grid; grid-template-columns: 96px 1fr; gap: 4px 10px; align-items: center; margin-bottom: 10px; }
+.pr .name { font-weight: 700; }
+.pr.b .name { color: var(--banker); } .pr.p .name { color: var(--player); } .pr.t .name { color: var(--tie); }
+.pr .bar { height: 10px; background: rgba(0,0,0,.25); border-radius: 6px; overflow: hidden; }
+.pr .bar i { display: block; height: 100%; border-radius: 6px; }
+.pr.b .bar i { background: var(--banker); } .pr.p .bar i { background: var(--player); } .pr.t .bar i { background: var(--tie); }
+.pr .num { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.pr .meta { grid-column: 2; display: flex; gap: 12px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex-wrap: wrap; }
+.pos { color: #8be7b4; font-weight: 700; } .neg { color: #f2a79f; }
+.est { font-size: 11px; padding: 0 6px; border-radius: 4px; background: rgba(230,197,110,.22); color: var(--gold); margin-left: 6px; }
+
+/* tables */
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; }
+th, td { padding: 6px 6px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+th:first-child, td:first-child { text-align: left; font-weight: 800; }
+td.win { background: rgba(230,197,110,.18); color: var(--gold); font-weight: 800; border-radius: 4px; }
+td.dim { color: #6f8d81; }
+.htable { max-height: 360px; overflow-y: auto; }
+.htable td.hc { text-align: left; }
+.htable small { color: var(--muted); margin-left: 4px; }
+.htable td.res { font-weight: 800; }
+.htable td.res.b { color: var(--banker); } .htable td.res.p { color: var(--player); } .htable td.res.t { color: var(--tie); }
+.htable tr.pre td { opacity: .6; }
+.tag { display: inline-block; font-size: 10px; padding: 0 4px; border-radius: 4px; background: rgba(230,197,110,.25); color: var(--gold); margin-left: 4px; }
+.wl-b { color: var(--banker); } .wl-p2 { color: var(--player); }
+.wl-w { color: #8be7b4; font-weight: 700; } .wl-l { color: #f2a79f; font-weight: 700; } .wl-p { color: var(--muted); }
+
+/* roads */
+.vseg { margin-bottom: 8px; }
+.grid { display: flex; overflow-x: auto; padding-bottom: 6px; min-height: 40px; }
+.gcol { display: flex; flex-direction: column; flex: none; }
+.gcell { width: 26px; height: 26px; display: grid; place-items: center; position: relative; border-right: 1px solid rgba(42,106,88,.55); border-bottom: 1px solid rgba(42,106,88,.55); }
+.gcell .six { position: absolute; font-size: 12px; font-weight: 800; color: var(--ink); line-height: 1; }
+.gcell .six.g { color: var(--gold); }
+.small .gcell { width: 16px; height: 16px; }
+.dot { width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid; position: relative; flex: none; }
+.dot.b { border-color: var(--banker); } .dot.p { border-color: var(--player); }
+.dot.win.b { background: var(--banker); } .dot.win.p { background: var(--player); }
+.dot.win ~ .six, .dot.win ~ .six.g { color: #0b1f19; }
+.dot.tie::after { content: ""; position: absolute; left: -3px; right: -3px; top: 50%; height: 2.5px; background: var(--tie); transform: rotate(-45deg); }
+.mk { display: block; flex: none; }
+.bead { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: #0b1f19; }
+.bead.b { background: var(--banker); } .bead.p { background: var(--player); } .bead.t { background: var(--tie); }
+.dlabel { font-size: 12px; color: var(--muted); margin: 6px 0 2px; }
+
+/* stats */
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stat { background: rgba(0,0,0,.2); border-radius: 8px; padding: 8px 6px; text-align: center; }
+.stat .k { font-size: 11px; color: var(--muted); }
+.stat .v { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.stat .s { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.stat.b .v { color: var(--banker); } .stat.p .v { color: var(--player); } .stat.t .v { color: var(--tie); }
+.stats h3 { grid-column: 1 / -1; margin: 6px 0 0; font-size: 12px; color: var(--gold); font-weight: 600; }
+.empty { color: var(--muted); font-size: 13px; }
+.foot { color: var(--muted); font-size: 12px; margin: 0; }
+textarea.bk { width: 100%; min-height: 72px; background: rgba(0,0,0,.25); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font-size: 11px; font-family: ui-monospace, monospace; }
+
+/* fixed input panel */
+.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: linear-gradient(180deg, #134a3d 0%, #0a2b24 100%); border-top: 1px solid var(--gold); box-shadow: 0 -6px 20px rgba(0,0,0,.5); padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); }
+.dock .in { max-width: 560px; margin: 0 auto; }
+.bets { display: grid; grid-template-columns: 1fr 1.4fr 1.4fr; gap: 8px; margin-bottom: 8px; }
+.bets button { border: 2px solid var(--line); background: transparent; border-radius: 10px; padding: 9px 0; font-weight: 800; font-size: 15px; color: var(--muted); }
+.bets button.b[aria-pressed="true"] { background: var(--banker); border-color: var(--banker); color: #06182c; }
+.bets button.p[aria-pressed="true"] { background: var(--player); border-color: var(--player); color: #2a0a07; }
+.bets button.n[aria-pressed="true"] { background: var(--muted); border-color: var(--muted); color: #0b1f19; }
+.dockrow { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }
+.dockrow .left { font-size: 11px; white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pad { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
+.key { position: relative; background: #f6f1e4; color: #1d2a24; border: 0; border-radius: 9px; height: 54px; font-size: 22px; font-weight: 800; padding-bottom: 12px; }
+.key span { position: absolute; bottom: 3px; left: 0; right: 0; font-size: 10px; font-weight: 600; color: #55665d; }
+.key.t10 { font-size: 17px; }
+.key:active { transform: scale(.96); }
+.key:disabled { opacity: .3; cursor: not-allowed; }
+body[data-mode="burn"] .key { border: 3px solid var(--gold); }
+.respad { display: grid; grid-template-columns: 1fr 0.7fr 1fr; gap: 8px; }
+.respad button { height: 54px; border: 0; border-radius: 10px; font-size: 22px; font-weight: 800; }
+.respad .b { background: var(--banker); color: #06182c; } .respad .p { background: var(--player); color: #2a0a07; } .respad .t { background: var(--tie); color: #06231a; }
+
+select, input.tx { background: rgba(0,0,0,.25); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 14px; font-family: inherit; min-width: 0; }
+.tm { display: block; font-size: 10px; color: var(--muted); font-weight: 500; }
+
+/* saved list */
+.snap { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.snap:last-child { border-bottom: 0; }
+.snap .t { font-size: 14px; font-weight: 700; }
+.snap .m { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.snap .btns { display: flex; gap: 6px; flex: none; }
+.snap .ghost { padding: 5px 10px; }
+
+/* image overlay */
+.ov { position: fixed; inset: 0; z-index: 50; background: #04140f; overflow-y: auto; padding: 16px; }
+.ov[hidden] { display: none; }
+.ov .box { max-width: 560px; margin: 0 auto; }
+.ov img { width: auto; max-width: 100%; max-height: calc(100dvh - 150px); height: auto; border-radius: 8px; display: block; margin: 0 auto; background: #0e3a31; }
+</style>
+</head>
+<body data-mode="hand">
+<div class="wrap">
+  <header>
+    <h1>バカラ記録帳</h1>
+    <p class="sub">賭け先と出た札を押すと、罫線・勝敗・残りカードの確率を記録します。</p>
+  </header>
+
+  <div class="row between">
+    <div class="row">
+      <div class="seg" role="group" aria-label="デッキ数" id="deckSeg">
+        <button type="button" data-decks="6" aria-pressed="false">6デッキ</button>
+        <button type="button" data-decks="8" aria-pressed="true">8デッキ</button>
+      </div>
+      <div class="seg" role="group" aria-label="手数料" id="commSeg">
+        <button type="button" data-comm="1" aria-pressed="true">手数料5%</button>
+        <button type="button" data-comm="0" aria-pressed="false">なし(6半額)</button>
+      </div>
+    </div>
+    <div class="row">
+      <button type="button" class="ghost" id="saveShoe">保存</button>
+      <button type="button" class="ghost" id="newShoe">初期化</button>
+    </div>
+  </div>
+
+  <section class="panel" aria-label="カジノ">
+    <div class="row">
+      <label for="casinoSel" class="note" style="margin:0">カジノ</label>
+      <select id="casinoSel" style="flex:1"></select>
+      <button type="button" class="ghost" id="casinoNew">＋登録</button>
+      <button type="button" class="ghost" id="casinoDel">削除</button>
+    </div>
+    <div class="row" id="casinoForm" hidden style="margin-top:8px">
+      <input id="casinoName" class="tx" type="text" maxlength="24" placeholder="カジノ名" style="flex:1" aria-label="カジノ名">
+      <button type="button" class="ghost" id="casinoOk">追加</button>
+      <button type="button" class="ghost" id="casinoCancel">やめる</button>
+    </div>
+    <p class="note" id="timeinfo"></p>
+  </section>
+
+  <section class="panel" aria-label="現在の手">
+    <h2>現在の手<span class="betbadge" id="betbadge">見送り</span></h2>
+    <div class="slots">
+      <div class="side p"><h3>プレイヤー <span class="tot" id="ptot">-</span></h3><div class="cards" id="pslots"></div></div>
+      <div class="side b"><h3>バンカー <span class="tot" id="btot">-</span></h3><div class="cards" id="bslots"></div></div>
+    </div>
+    <p class="status" id="status"></p>
+    <div class="recent" id="recent"></div>
+  </section>
+
+  <section class="panel" aria-label="勝利確率">
+    <h2>この手の勝利確率<span class="est" id="est" hidden>推定</span></h2>
+    <div id="prob"></div>
+    <p class="note" id="probnote"></p>
+  </section>
+
+  <section class="panel" aria-label="札別の勝利確率">
+    <h2 id="hinttitle">次の札ごとの勝利確率</h2>
+    <div class="scroll" id="hint"></div>
+  </section>
+
+  <section class="panel" aria-label="罫線と履歴">
+    <div class="row between vseg">
+      <h2 style="margin:0">罫線・履歴</h2>
+      <div class="seg" role="group" aria-label="表示" id="viewSeg">
+        <button type="button" data-view="big" aria-pressed="true">大路</button>
+        <button type="button" data-view="bead" aria-pressed="false">珠盤</button>
+        <button type="button" data-view="der" aria-pressed="false">派生</button>
+        <button type="button" data-view="table" aria-pressed="false">履歴</button>
+      </div>
+    </div>
+    <div id="view"></div>
+  </section>
+
+  <section class="panel" aria-label="情報">
+    <h2>情報</h2>
+    <div class="stats" id="stats"></div>
+    <div class="row" style="margin-top:10px">
+      <button type="button" class="ghost" id="mkImg">画像にする</button>
+      <span class="note" style="margin:0">罫線と集計を1枚の画像にまとめます。</span>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="保存した記録">
+    <h2>保存した記録</h2>
+    <div id="saved"></div>
+  </section>
+
+  <section class="panel" aria-label="バックアップ">
+    <h2>バックアップ</h2>
+    <p class="note" style="margin-top:0">記録はこの端末のブラウザに保存されます。下の文字列を控えておくと、別の端末や消えた後に復元できます。</p>
+    <textarea class="bk" id="bk" aria-label="バックアップ用データ" spellcheck="false"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button type="button" class="ghost" id="bkCopy">コピー</button>
+      <button type="button" class="ghost" id="bkRestore">この内容で復元</button>
+      <span class="note" id="bkMsg" style="margin:0"></span>
+    </div>
+  </section>
+
+  <p class="foot">学習と記録のためのツールです。残りカードの偏りによる確率の差は小さく、勝てることを保証するものではありません。賭け金の収支は1単位あたりで計算します。</p>
+</div>
+
+<div class="dock" id="dock">
+  <div class="in">
+    <div class="bets" role="group" aria-label="賭け先" id="bets">
+      <button type="button" class="n" data-bet="" aria-pressed="true">見送り</button>
+      <button type="button" class="b" data-bet="B" aria-pressed="false">バンカー</button>
+      <button type="button" class="p" data-bet="P" aria-pressed="false">プレイヤー</button>
+    </div>
+    <div class="dockrow">
+      <div class="seg" role="group" aria-label="入力モード" id="modeSeg">
+        <button type="button" data-mode="hand" aria-pressed="true">札</button>
+        <button type="button" data-mode="burn" aria-pressed="false">バーン</button>
+        <button type="button" data-mode="res" aria-pressed="false">結果のみ</button>
+      </div>
+      <span class="left" id="left"></span>
+      <button type="button" class="ghost" id="undo">↺ 戻す</button>
+    </div>
+    <div class="pad" id="pad"></div>
+    <div class="respad" id="respad" hidden>
+      <button type="button" class="b" data-res="B">B</button>
+      <button type="button" class="t" data-res="T">T</button>
+      <button type="button" class="p" data-res="P">P</button>
+    </div>
+  </div>
+</div>
+
+<div class="ov" id="ov" hidden>
+  <div class="box">
+    <div class="row between" style="margin-bottom:10px">
+      <strong>記録画像</strong>
+      <button type="button" class="ghost" id="ovClose">閉じる</button>
+    </div>
+    <img id="ovImg" alt="罫線と集計の画像">
+    <p class="note">画像を長押しすると、写真に保存できます。保存できない場合はスクリーンショットを使ってください。</p>
+  </div>
+</div>
+
+<script>
+//LOGIC-START
+const LABEL = ['10系', 'A', '2', '3', '4', '5', '6', '7', '8', '9']; // index = card value
+const SHORT = ['10', 'A', '2', '3', '4', '5', '6', '7', '8', '9'];
+const PAD_ORDER = [1, 2, 3, 4, 5, 6, 7, 8, 9, 0];
+const SLOT_NAME = { p1: 'プレイヤー1枚目', b1: 'バンカー1枚目', p2: 'プレイヤー2枚目', b2: 'バンカー2枚目', p3: 'プレイヤー3枚目', b3: 'バンカー3枚目' };
+const MAX_ROWS = 6;
+const CARDS_PER_HAND = 4.94; // average cards used by one hand, for estimating unseen hands
+
+function initCounts(decks) { const c = new Array(10).fill(4 * decks); c[0] = 16 * decks; return c; }
+function newState() { return { p1: null, b1: null, p2: null, b2: null, p3: null, b3: null }; }
+function sum(a) { let t = 0; for (let i = 0; i < a.length; i++) t += a[i]; return t; }
+function ptOf(s) { return s.p1 === null || s.p2 === null ? null : (s.p1 + s.p2 + (s.p3 === null ? 0 : s.p3)) % 10; }
+function btOf(s) { return s.b1 === null || s.b2 === null ? null : (s.b1 + s.b2 + (s.b3 === null ? 0 : s.b3)) % 10; }
+function bankerDraws(bt, p3) {
+  if (bt <= 2) return true;
+  if (bt === 3) return p3 !== 8;
+  if (bt === 4) return p3 >= 2 && p3 <= 7;
+  if (bt === 5) return p3 >= 4 && p3 <= 7;
+  if (bt === 6) return p3 === 6 || p3 === 7;
+  return false;
+}
+// the slot that must be filled next, or null when the hand is finished
+function nextSlot(s) {
+  if (s.p1 === null) return 'p1';
+  if (s.b1 === null) return 'b1';
+  if (s.p2 === null) return 'p2';
+  if (s.b2 === null) return 'b2';
+  const p2t = (s.p1 + s.p2) % 10, b2t = (s.b1 + s.b2) % 10;
+  if (p2t >= 8 || b2t >= 8) return null;
+  const pDraw = p2t <= 5;
+  if (pDraw && s.p3 === null) return 'p3';
+  const bDraw = pDraw ? bankerDraws(b2t, s.p3) : b2t <= 5;
+  if (bDraw && s.b3 === null) return 'b3';
+  return null;
+}
+function resultOf(s) { const p = ptOf(s), b = btOf(s); return b > p ? 0 : p > b ? 1 : 2; } // 0 banker, 1 player, 2 tie
+function stateFromCards(cards) {
+  const s = newState();
+  for (const c of cards) { const k = nextSlot(s); if (k === null) break; s[k] = c; }
+  return s;
+}
+// entries: {res:'B'|'P'|'T'} results typed before joining, or {r, burn?, bet?} cards. bet sits on the card that ends a hand.
+function derive(entries, decks) {
+  const raw = initCounts(decks);
+  const hands = [];
+  let cur = [], pre = 0, bad = false;
+  for (const e of entries) {
+    if (e.res) { hands.push({ cards: null, result: 'BPT'.indexOf(e.res), bet: null, pre: true, t: null }); pre++; continue; }
+    raw[e.r]--;
+    if (raw[e.r] < 0) bad = true;
+    if (e.burn) continue;
+    cur.push(e.r);
+    const st = stateFromCards(cur);
+    if (nextSlot(st) === null) { hands.push({ cards: cur, result: resultOf(st), bet: e.bet || null, pre: false, t: e.t || null }); cur = []; }
+  }
+  // hands played before joining were not seen: remove their expected cards in proportion to the shoe
+  const counts = raw.slice();
+  if (pre > 0) {
+    const init = initCounts(decks), tot = sum(init), removed = pre * CARDS_PER_HAND;
+    for (let r = 0; r < 10; r++) counts[r] = Math.max(0, counts[r] - removed * init[r] / tot);
+  }
+  const hasCards = entries.some((e) => !e.res);
+  return { raw, counts, hands, cur, pre, bad, estimated: pre > 0, hasCards };
+}
+// exact outcome probabilities [banker, player, tie, banker-wins-with-6] from a partial hand and the remaining cards
+function outcome(counts, st) {
+  const res = [0, 0, 0, 0];
+  (function rec(w, total) {
+    const slot = nextSlot(st);
+    if (slot === null) {
+      const k = resultOf(st);
+      res[k] += w;
+      if (k === 0 && btOf(st) === 6) res[3] += w;
+      return;
+    }
+    for (let r = 0; r < 10; r++) {
+      const c = counts[r];
+      if (c <= 0) continue;
+      counts[r] = c - 1 < 0 ? 0 : c - 1; st[slot] = r;
+      rec(w * c / total, total - 1 > 1 ? total - 1 : 1);
+      st[slot] = null; counts[r] = c;
+    }
+  })(1, sum(counts));
+  return res;
+}
+const baseCache = {};
+function baseline(decks) { if (!baseCache[decks]) baseCache[decks] = outcome(initCounts(decks), newState()); return baseCache[decks]; }
+// expected value per unit; commission on: banker pays 0.95. commission off: banker wins with 6 pay half
+function evs(p, commission) {
+  return { banker: commission ? 0.95 * p[0] - p[1] : p[0] - 0.5 * p[3] - p[1], player: p[1] - p[0], tie: 9 * p[2] - 1 };
+}
+function handInfo(h) {
+  if (!h.cards) return { st: null, p: null, b: null, natural: false, six: false };
+  const st = stateFromCards(h.cards);
+  const p = ptOf(st), b = btOf(st);
+  const natural = (((st.p1 + st.p2) % 10) >= 8) || (((st.b1 + st.b2) % 10) >= 8);
+  return { st, p, b, natural, six: h.result === 0 && b === 6 };
+}
+// what my bet did on this hand: {kind:'win'|'lose'|'push'|null, delta}
+function betOutcome(h, info, commission) {
+  if (!h.bet) return { kind: null, delta: 0 };
+  if (h.result === 2) return { kind: 'push', delta: 0 };
+  if (h.bet === 'B') return h.result === 0 ? { kind: 'win', delta: commission ? 0.95 : (info.six ? 0.5 : 1) } : { kind: 'lose', delta: -1 };
+  return h.result === 1 ? { kind: 'win', delta: 1 } : { kind: 'lose', delta: -1 };
+}
+function summarize(hands, commission) {
+  const s = { total: hands.length, B: 0, P: 0, T: 0, bets: 0, win: 0, lose: 0, push: 0, skip: 0, net: 0, curSide: null, curRun: 0, maxB: 0, maxP: 0, played: 0 };
+  let run = 0, side = null;
+  for (const h of hands) {
+    if (h.result === 0) s.B++; else if (h.result === 1) s.P++; else s.T++;
+    if (h.result !== 2) {
+      if (h.result === side) run++; else { side = h.result; run = 1; }
+      if (side === 0 && run > s.maxB) s.maxB = run;
+      if (side === 1 && run > s.maxP) s.maxP = run;
+    }
+    if (!h.pre) {
+      s.played++;
+      if (h.bet) {
+        s.bets++;
+        const o = betOutcome(h, handInfo(h), commission);
+        if (o.kind === 'win') s.win++; else if (o.kind === 'lose') s.lose++; else s.push++;
+        s.net += o.delta;
+      } else s.skip++;
+    }
+  }
+  s.curSide = side; s.curRun = run;
+  return s;
+}
+// generic layout: same side goes down (6 rows), then runs right along the bottom; a new side starts a new column
+function layoutSides(items) {
+  const cells = {};
+  let col = -1, row = -1, last = null, maxCol = -1;
+  for (const it of items) {
+    if (last === null) { col = 0; row = 0; }
+    else if (it.side === last) { if (row + 1 < MAX_ROWS && !cells[col + '-' + (row + 1)]) row++; else col++; }
+    else { col = maxCol + 1; row = 0; }
+    cells[col + '-' + row] = it;
+    last = it.side;
+    if (col > maxCol) maxCol = col;
+  }
+  return { cells, cols: maxCol + 1 };
+}
+// big road: ties are marked on the previous cell (leading ties are carried to the first cell)
+function buildBigRoad(hands) {
+  const items = [];
+  let pendingTie = 0;
+  for (const h of hands) {
+    const six = !!h.six;
+    if (h.result === 2) { if (items.length) items[items.length - 1].ties++; else pendingTie++; continue; }
+    items.push({ side: h.result, ties: items.length ? 0 : pendingTie, six, win: !!h.win, total: h.total === undefined ? null : h.total });
+  }
+  return layoutSides(items);
+}
+// streak lengths per logical column (the basis of the derived roads)
+function streakLens(hands) {
+  const lens = []; let last = null;
+  for (const h of hands) {
+    if (h.result === 2) continue;
+    if (h.result === last) lens[lens.length - 1]++; else { lens.push(1); last = h.result; }
+  }
+  return lens;
+}
+// derived roads (big eye k=1, small k=2, cockroach k=3): 'R' = pattern repeats, 'U' = it breaks
+function derivedSeq(lens, k) {
+  const out = [];
+  for (let c = 0; c < lens.length; c++) {
+    for (let r = 1; r <= lens[c]; r++) {
+      if (r === 1) {
+        if (c - 1 - k < 0) continue;
+        out.push(lens[c - 1] === lens[c - 1 - k] ? 'R' : 'U');
+      } else {
+        if (c - k < 0) continue;
+        const L = lens[c - k];
+        out.push(L >= r ? 'R' : L === r - 1 ? 'U' : 'R');
+      }
+    }
+  }
+  return out;
+}
+function derivedRoad(hands, k) {
+  return layoutSides(derivedSeq(streakLens(hands), k).map((x) => ({ side: x === 'R' ? 0 : 1, kind: x })));
+}
+function encodeEntries(entries) { return entries.map((e) => (e.res ? ['R', e.res, e.t || 0] : [e.r, e.burn ? 1 : 0, e.bet || '', e.t || 0])); }
+function decodeEntries(arr) {
+  const out = [];
+  for (const x of arr) {
+    if (!Array.isArray(x)) return null;
+    if (x[0] === 'R') { if (!['B', 'P', 'T'].includes(x[1])) return null; const er = { res: x[1] }; if (x[2] > 0) er.t = x[2]; out.push(er); continue; }
+    if (!Number.isInteger(x[0]) || x[0] < 0 || x[0] > 9) return null;
+    const e = { r: x[0], burn: x[1] === 1 };
+    if (x[2] === 'B' || x[2] === 'P') e.bet = x[2];
+    if (x[3] > 0) e.t = x[3];
+    out.push(e);
+  }
+  return out;
+}
+// streak counts per side: runs[n] = how many streaks of length n (7 means 7 or more); a dragon is a streak of 7 or more
+function streakInfo(hands) {
+  const mk = () => ({ runs: [0, 0, 0, 0, 0, 0, 0, 0], dragons: 0, max: 0 });
+  const out = { B: mk(), P: mk() };
+  let last = null, len = 0;
+  const flush = () => {
+    if (last === null) return;
+    const o = last === 0 ? out.B : out.P;
+    o.runs[Math.min(len, 7)]++;
+    if (len >= 7) o.dragons++;
+    if (len > o.max) o.max = len;
+  };
+  for (const h of hands) {
+    if (h.result === 2) continue;
+    if (h.result === last) len++; else { flush(); last = h.result; len = 1; }
+  }
+  flush();
+  return out;
+}
+//LOGIC-END
+</script>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const KEY = 'baccarat-record-v2';
+  let decks = 8, commission = true, mode = 'hand', view = 'big', bet = null, entries = [], snaps = [], casino = '', casinos = [];
+  const armed = {};
+  let calcToken = 0;
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) || localStorage.getItem('baccarat-card-v1') || 'null');
+    if (saved && (saved.decks === 6 || saved.decks === 8) && Array.isArray(saved.entries)) {
+      const dec = saved.entries.some((x) => Array.isArray(x)) ? decodeEntries(saved.entries) : saved.entries.filter((e) => e && Number.isInteger(e.r) && e.r >= 0 && e.r <= 9).map((e) => ({ r: e.r, burn: !!e.burn }));
+      if (dec && !derive(dec, saved.decks).bad) { decks = saved.decks; entries = dec; }
+      if (saved.commission === false) commission = false;
+      if (Array.isArray(saved.saved)) snaps = saved.saved.filter(validSnap).slice(0, 30);
+      if (Array.isArray(saved.casinos)) casinos = saved.casinos.filter((x) => typeof x === 'string' && x.trim()).slice(0, 20);
+      if (typeof saved.casino === 'string' && saved.casino) { casino = saved.casino; if (!casinos.includes(casino)) casinos.push(casino); }
+    }
+  } catch (e) { /* storage may be unavailable */ }
+  function validSnap(x) {
+    if (!x || typeof x.id !== 'number' || (x.decks !== 6 && x.decks !== 8) || !Array.isArray(x.entries)) return false;
+    const dec = decodeEntries(x.entries);
+    return !!dec && !derive(dec, x.decks).bad;
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify({ decks, commission, casino, casinos, entries: encodeEntries(entries), saved: snaps })); } catch (e) { /* ignore */ } }
+
+  function pct(x, d) { return (x * 100).toFixed(d === undefined ? 1 : d) + '%'; }
+  function signed(x, d) { const v = x * 100; return (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(d); }
+  function sgnUnits(x) { return (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(2); }
+  function sideName(r) { return r === 0 ? 'バンカー' : r === 1 ? 'プレイヤー' : 'タイ'; }
+  function letter(r) { return r === 0 ? 'B' : r === 1 ? 'P' : 'T'; }
+  function cls(r) { return r === 0 ? 'b' : r === 1 ? 'p' : 't'; }
+
+  function confirmTap(key, btn, label, armedLabel, fn) {
+    if (armed[key]) { clearTimeout(armed[key]); armed[key] = null; btn.classList.remove('armed'); btn.textContent = label; fn(); return; }
+    btn.classList.add('armed'); btn.textContent = armedLabel;
+    armed[key] = setTimeout(() => { armed[key] = null; btn.classList.remove('armed'); btn.textContent = label; }, 3000);
+  }
+
+  // ---- pad ----
+  const pad = $('pad');
+  PAD_ORDER.forEach((r) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'key' + (r === 0 ? ' t10' : ''); b.dataset.r = r;
+    b.innerHTML = LABEL[r] + '<span></span>';
+    b.addEventListener('click', () => addCard(r));
+    pad.appendChild(b);
+  });
+  document.querySelectorAll('#respad button').forEach((b) => b.addEventListener('click', () => {
+    if (derive(entries, decks).hasCards) return;
+    entries.push({ res: b.dataset.res, t: Date.now() }); save(); render();
+  }));
+  document.querySelectorAll('#bets button').forEach((b) => b.addEventListener('click', () => { bet = b.dataset.bet || null; renderBet(); }));
+
+  function addCard(r) {
+    const d = derive(entries, decks);
+    if (d.raw[r] <= 0) return;
+    if (mode === 'burn' && d.cur.length > 0) return;
+    const e = { r, burn: mode === 'burn', t: Date.now() };
+    const trial = derive(entries.concat([e]), decks);
+    if (!e.burn && trial.hands.length > d.hands.length) { if (bet) e.bet = bet; bet = null; }
+    entries.push(e);
+    save(); render();
+  }
+  $('undo').addEventListener('click', () => {
+    if (!entries.length) return;
+    const last = entries.pop();
+    if (last.bet) bet = last.bet;
+    save(); render();
+  });
+  $('newShoe').addEventListener('click', function () {
+    if (!entries.length) return;
+    confirmTap('shoe', this, '初期化', 'もう一度で消去', () => { entries = []; bet = null; save(); render(); });
+  });
+  let saveTimer = null;
+  $('saveShoe').addEventListener('click', function () {
+    if (!entries.length) return;
+    snaps.unshift({ id: Date.now(), decks, commission, casino, entries: encodeEntries(entries) });
+    snaps = snaps.slice(0, 30);
+    save(); renderSaved();
+    this.textContent = '保存しました ✓';
+    clearTimeout(saveTimer); saveTimer = setTimeout(() => { this.textContent = '保存'; }, 1800);
+  });
+  document.querySelectorAll('#deckSeg button').forEach((b) => b.addEventListener('click', () => {
+    const n = Number(b.dataset.decks);
+    if (n === decks) return;
+    const apply = () => { decks = n; entries = []; bet = null; save(); render(); };
+    if (!entries.length) apply(); else confirmTap('deck' + n, b, n + 'デッキ', '記録を消して切替', apply);
+  }));
+  document.querySelectorAll('#commSeg button').forEach((b) => b.addEventListener('click', () => { commission = b.dataset.comm === '1'; save(); render(); }));
+  document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => { mode = b.dataset.mode; render(); }));
+  document.querySelectorAll('#viewSeg button').forEach((b) => b.addEventListener('click', () => { view = b.dataset.view; renderRoad(derive(entries, decks).hands); }));
+
+  function renderBet() {
+    document.querySelectorAll('#bets button').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.bet || null) === bet)));
+    const el = $('betbadge');
+    el.textContent = bet === 'B' ? 'バンカーに賭け' : bet === 'P' ? 'プレイヤーに賭け' : '見送り';
+    el.className = 'betbadge' + (bet === 'B' ? ' b' : bet === 'P' ? ' p' : '');
+  }
+
+  function slotHTML(key, st, next, old) {
+    const v = st[key];
+    const c = 'slot' + (v !== null ? ' filled' : '') + (next === key ? ' next' : '') + (old ? ' old' : '');
+    return '<div class="' + c + '">' + (v !== null ? LABEL[v] : (next === key ? '次' : '·')) + '</div>';
+  }
+  function statusText(st, next) {
+    const p2 = st.p1 !== null && st.p2 !== null ? (st.p1 + st.p2) % 10 : null;
+    const b2 = st.b1 !== null && st.b2 !== null ? (st.b1 + st.b2) % 10 : null;
+    if (next === null) return '';
+    if (p2 === null || b2 === null) return '次は <b>' + SLOT_NAME[next] + '</b> を押してください。';
+    if (next === 'p3') return 'プレイヤー ' + p2 + '、バンカー ' + b2 + '。プレイヤーは3枚目を<b>引きます</b>。';
+    if (next === 'b3') {
+      if (st.p3 === null) return 'プレイヤー ' + p2 + ' は<b>引かない</b>。バンカー ' + b2 + ' は3枚目を<b>引きます</b>。';
+      return 'プレイヤーの3枚目は ' + LABEL[st.p3] + '。バンカー ' + b2 + ' は3枚目を<b>引きます</b>。';
+    }
+    return '次は <b>' + SLOT_NAME[next] + '</b> を押してください。';
+  }
+
+  function render() {
+    const d = derive(entries, decks);
+    const { raw, counts, hands, cur } = d;
+    const total = Math.round(sum(counts)), initTotal = 52 * decks;
+
+    // mode rules: results-only before the first card; burn only between hands
+    if (mode === 'res' && d.hasCards) mode = 'hand';
+    if (mode === 'burn' && cur.length > 0) mode = 'hand';
+    document.body.dataset.mode = mode;
+    document.querySelectorAll('#deckSeg button').forEach((b) => { b.setAttribute('aria-pressed', String(Number(b.dataset.decks) === decks)); if (!armed['deck' + b.dataset.decks]) b.textContent = b.dataset.decks + 'デッキ'; });
+    document.querySelectorAll('#commSeg button').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.comm === '1') === commission)));
+    document.querySelectorAll('#modeSeg button').forEach((b) => {
+      b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
+      if (b.dataset.mode === 'burn') b.disabled = cur.length > 0;
+      if (b.dataset.mode === 'res') b.disabled = d.hasCards;
+    });
+    $('undo').disabled = entries.length === 0;
+    $('newShoe').disabled = entries.length === 0;
+    $('saveShoe').disabled = entries.length === 0;
+    $('pad').hidden = mode === 'res';
+    $('respad').hidden = mode !== 'res';
+    pad.querySelectorAll('.key').forEach((b) => {
+      const r = Number(b.dataset.r);
+      b.querySelector('span').textContent = (d.estimated ? '≈' : '残') + Math.round(counts[r]);
+      b.disabled = raw[r] <= 0 || (mode === 'burn' && cur.length > 0);
+    });
+    $('left').textContent = d.hasCards || !d.pre ? '残 ' + total + ' / ' + initTotal + (d.estimated ? '(推定)' : '') : '参加前 ' + d.pre + '手';
+    renderBet();
+
+    // hand slots; the previous hand stays dimmed until a new one starts
+    const curState = stateFromCards(cur);
+    const next = nextSlot(curState);
+    const old = cur.length === 0 && hands.length > 0 && !hands[hands.length - 1].pre;
+    const shown = old ? stateFromCards(hands[hands.length - 1].cards) : curState;
+    const sn = old ? null : next;
+    $('pslots').innerHTML = ['p1', 'p2', 'p3'].map((k) => slotHTML(k, shown, sn, old)).join('');
+    $('bslots').innerHTML = ['b1', 'b2', 'b3'].map((k) => slotHTML(k, shown, sn, old)).join('');
+    $('ptot').textContent = ptOf(shown) === null ? '-' : ptOf(shown);
+    $('btot').textContent = btOf(shown) === null ? '-' : btOf(shown);
+    if (old) {
+      const h = hands[hands.length - 1], f = handInfo(h), o = betOutcome(h, f, commission);
+      const wl = o.kind === 'win' ? '　<b>勝ち ' + sgnUnits(o.delta) + '</b>' : o.kind === 'lose' ? '　<b>負け −1.00</b>' : o.kind === 'push' ? '　<b>引き分け</b>' : '';
+      $('status').innerHTML = '前の手は <b>' + sideName(h.result) + '</b>' + wl + '。次は <b>' + SLOT_NAME.p1 + '</b> を押してください。';
+    } else if (mode === 'res') {
+      $('status').innerHTML = '<b>参加前の結果</b>だけを B / T / P で入力します。札を押し始めた所から、札を記録します。';
+    } else if (mode === 'burn') {
+      $('status').innerHTML = '<b>バーン</b>：シュー開始時に捨てられた札を入力します。手札には数えず、残りカードから除きます。';
+    } else {
+      $('status').innerHTML = statusText(curState, next) || ('次は <b>' + SLOT_NAME.p1 + '</b> を押してください。');
+    }
+    const rc = hands.slice(-14);
+    $('recent').innerHTML = rc.length ? '<span>直近</span>' + rc.map((x) => '<i style="background:var(--' + (x.result === 0 ? 'banker' : x.result === 1 ? 'player' : 'tie') + ')"></i>').join('') : '';
+
+    renderRoad(hands);
+    renderStats(hands);
+    renderSaved();
+    renderMeta();
+    $('bk').value = bkText();
+    calcAndShow(counts.slice(), curState, d);
+  }
+
+  // ---- roads and history ----
+  function markSVG(kind, side) { // derived-road marks
+    const col = side === 0 ? 'var(--player)' : 'var(--banker)';
+    if (kind === 1) return '<svg class="mk" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="' + col + '" stroke-width="2"/></svg>';
+    if (kind === 2) return '<svg class="mk" width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="' + col + '"/></svg>';
+    return '<svg class="mk" width="14" height="14" viewBox="0 0 14 14"><line x1="3" y1="11" x2="11" y2="3" stroke="' + col + '" stroke-width="2.4" stroke-linecap="round"/></svg>';
+  }
+  function gridHTML(road, cellFn, small) {
+    let html = '<div class="grid' + (small ? ' small' : '') + '" data-scroll>';
+    for (let c = 0; c < road.cols; c++) {
+      html += '<div class="gcol">';
+      for (let r = 0; r < MAX_ROWS; r++) html += '<div class="gcell">' + cellFn(road.cells[c + '-' + r]) + '</div>';
+      html += '</div>';
+    }
+    return html + '</div>';
+  }
+  function renderRoad(hands) {
+    document.querySelectorAll('#viewSeg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
+    const box = $('view');
+    if (!hands.length) { box.innerHTML = '<span class="empty">手が終わると、ここに記録されます。</span>'; return; }
+    const infos = hands.map(handInfo);
+    if (view === 'big') {
+      const road = buildBigRoad(hands.map((h, i) => ({ result: h.result, six: infos[i].six, win: betOutcome(h, infos[i], commission).kind === 'win', total: h.result === 0 ? infos[i].b : h.result === 1 ? infos[i].p : null })));
+      box.innerHTML = gridHTML(road, (cell) => cell ? '<div class="dot ' + (cell.side === 0 ? 'b' : 'p') + (cell.ties ? ' tie' : '') + (cell.win ? ' win' : '') + '"></div>' + (cell.total !== null && cell.total !== undefined ? '<span class="six' + (cell.six ? ' g' : '') + '">' + cell.total + '</span>' : '') : '') +
+        '<p class="note" style="margin-top:2px">塗りつぶしは賭けて勝った手、数字は勝った側の合計、緑の斜線はタイ、金の数字はバンカー6勝ちです。</p>';
+    } else if (view === 'bead') {
+      const cols = Math.ceil(hands.length / MAX_ROWS);
+      let html = '<div class="grid" data-scroll>';
+      for (let c = 0; c < cols; c++) {
+        html += '<div class="gcol">';
+        for (let r = 0; r < MAX_ROWS; r++) { const h = hands[c * MAX_ROWS + r]; html += '<div class="gcell">' + (h ? '<div class="bead ' + cls(h.result) + '">' + letter(h.result) + '</div>' : '') + '</div>'; }
+        html += '</div>';
+      }
+      box.innerHTML = html + '</div>';
+    } else if (view === 'der') {
+      const defs = [['大眼仔', 1, 1], ['小路', 2, 2], ['曱甴路', 3, 3]];
+      box.innerHTML = defs.map((df) => {
+        const road = derivedRoad(hands, df[1]);
+        return '<div class="dlabel">' + df[0] + '</div>' + (road.cols ? gridHTML(road, (cell) => cell ? markSVG(df[2], cell.side) : '', true) : '<div class="empty">まだ描けません</div>');
+      }).join('') + '<p class="note">赤は前の並びと同じ展開、青は違う展開です。</p>';
+    } else {
+      let html = '<div class="scroll htable"><table><thead><tr><th>#</th><th>プレイヤー</th><th>バンカー</th><th>結果</th><th>賭け</th><th>損益</th></tr></thead><tbody>';
+      for (let i = hands.length - 1; i >= 0; i--) {
+        const h = hands[i], f = infos[i];
+        if (h.pre) { html += '<tr class="pre"><td>' + (i + 1) + '</td><td class="hc" colspan="2">参加前</td><td class="res ' + cls(h.result) + '">' + letter(h.result) + '</td><td>-</td><td>-</td></tr>'; continue; }
+        const st = f.st, o = betOutcome(h, f, commission);
+        const pc = [st.p1, st.p2, st.p3].filter((v) => v !== null).map((v) => SHORT[v]).join(' ');
+        const bc = [st.b1, st.b2, st.b3].filter((v) => v !== null).map((v) => SHORT[v]).join(' ');
+        const wl = o.kind === 'win' ? '<span class="wl-w">' + sgnUnits(o.delta) + '</span>' : o.kind === 'lose' ? '<span class="wl-l">−1.00</span>' : o.kind === 'push' ? '<span class="wl-p">±0</span>' : '<span class="wl-p">-</span>';
+        html += '<tr><td>' + (i + 1) + (h.t ? '<small class="tm">' + fmtHM(h.t) + '</small>' : '') + '</td><td class="hc">' + pc + '<small>= ' + f.p + '</small></td><td class="hc">' + bc + '<small>= ' + f.b + '</small></td>' +
+          '<td class="res ' + cls(h.result) + '">' + letter(h.result) + (f.natural ? '<span class="tag">N</span>' : '') + (f.six ? '<span class="tag">6</span>' : '') + '</td>' +
+          '<td>' + (h.bet || '見') + '</td><td>' + wl + '</td></tr>';
+      }
+      box.innerHTML = html + '</tbody></table></div><p class="note" style="margin-top:6px">新しい手が上です。Nはナチュラル、6はバンカー6勝ち、見は見送りです。</p>';
+    }
+    const sb = box.querySelector('[data-scroll]'); if (sb) sb.scrollLeft = sb.scrollWidth;
+  }
+
+  // ---- stats ----
+  function statBox(k, v, s, c) { return '<div class="stat ' + (c || '') + '"><div class="k">' + k + '</div><div class="v">' + v + '</div><div class="s">' + (s || '&nbsp;') + '</div></div>'; }
+  function renderStats(hands) {
+    const s = summarize(hands, commission);
+    const nn = s.B + s.P;
+    let html = '<h3>出た結果</h3>' +
+      statBox('ゲーム数', s.total, s.pre ? '' : '') +
+      statBox('バンカー', s.B, s.total ? pct(s.B / s.total, 1) : '-', 'b') +
+      statBox('プレイヤー', s.P, s.total ? pct(s.P / s.total, 1) : '-', 'p') +
+      statBox('タイ', s.T, s.total ? pct(s.T / s.total, 1) : '-', 't') +
+      statBox('B勝率（タイ除く）', nn ? pct(s.B / nn, 1) : '-', '') +
+      statBox('P勝率（タイ除く）', nn ? pct(s.P / nn, 1) : '-', '') +
+      statBox('最長連続', 'B' + s.maxB + ' / P' + s.maxP, s.curSide === null ? '' : '今 ' + (s.curSide === 0 ? 'B' : 'P') + ' ' + s.curRun);
+    const dec = s.win + s.lose;
+    html += '<h3>自分の賭け</h3>' +
+      statBox('賭けた回数', s.bets, '見送り ' + s.skip) +
+      statBox('勝率', dec ? pct(s.win / dec, 1) : '-', s.win + '勝 ' + s.lose + '敗 ' + s.push + '分') +
+      statBox('負け比率', dec ? pct(s.lose / dec, 1) : '-', '引き分け除く') +
+      statBox('収支（単位）', sgnUnits(s.net), '1回=1単位');
+    const si = streakInfo(hands);
+    const row = (name, c, o) => '<tr><td class="' + c + '">' + name + '</td>' + o.runs.slice(1).map((n) => '<td' + (n ? '' : ' class="dim"') + '>' + n + '</td>').join('') + '</tr>';
+    html += '<h3>連チャン（同じ側が続いた回数）</h3>' +
+      statBox('ドラゴン回数', si.B.dragons + si.P.dragons, 'B ' + si.B.dragons + ' / P ' + si.P.dragons + '（7連以上）') +
+      statBox('最長 B', si.B.max, '連続') +
+      statBox('最長 P', si.P.max, '連続') +
+      '<div class="scroll" style="grid-column:1/-1"><table><thead><tr><th></th><th>1連</th><th>2連</th><th>3連</th><th>4連</th><th>5連</th><th>6連</th><th>7連+</th></tr></thead><tbody>' +
+      row('B', 'wl-b', si.B) + row('P', 'wl-p2', si.P) + '</tbody></table></div>';
+    $('stats').innerHTML = html;
+  }
+
+  // ---- probabilities ----
+  function calcAndShow(counts, curState, d) {
+    const token = ++calcToken;
+    $('prob').innerHTML = '<span class="empty">計算中…</span>';
+    $('hint').innerHTML = '';
+    $('est').hidden = !d.estimated;
+    setTimeout(() => {
+      if (token !== calcToken) return;
+      const base = baseline(decks);
+      const p = outcome(counts.slice(), Object.assign({}, curState));
+      const ev = evs(p, commission);
+      const rows = [['b', 'バンカー', p[0], p[0] - base[0], ev.banker], ['p', 'プレイヤー', p[1], p[1] - base[1], ev.player], ['t', 'タイ', p[2], p[2] - base[2], ev.tie]];
+      $('prob').innerHTML = rows.map((r) =>
+        '<div class="pr ' + r[0] + '"><div class="name">' + r[1] + '</div><div class="num">' + pct(r[2], 2) + '</div><div></div><div class="bar"><i style="width:' + (r[2] * 100) + '%"></i></div>' +
+        '<div class="meta"><span>開始時との差 ' + signed(r[3], 2) + 'pt</span><span>期待値 <span class="' + (r[4] > 0 ? 'pos' : 'neg') + '">' + signed(r[4], 2) + '%</span></span></div></div>').join('');
+      const anyPos = ev.banker > 0 || ev.player > 0 || ev.tie > 0;
+      $('probnote').textContent = (curState.p1 === null ? '次の1手の確率です。' : '入力済みの札を反映した、この手の最終確率です。') +
+        (anyPos ? '期待値がプラスの賭け先があります。' : '期待値はすべてマイナスです。') +
+        (d.estimated ? '参加前の ' + d.pre + '手の札は未入力のため、残りカードは推定です。' : '');
+      const slot = nextSlot(curState);
+      if (slot === null) return;
+      $('hinttitle').textContent = SLOT_NAME[slot] + 'の札ごとの勝利確率';
+      const total = sum(counts), html = ['<table><thead><tr><th>札</th><th>出る確率</th><th>バンカー</th><th>プレイヤー</th><th>タイ</th></tr></thead><tbody>'];
+      for (const r of PAD_ORDER) {
+        if (counts[r] <= 0) continue;
+        const c2 = counts.slice(); c2[r] = Math.max(0, c2[r] - 1);
+        const s2 = Object.assign({}, curState); s2[slot] = r;
+        const q = outcome(c2, s2), mx = Math.max(q[0], q[1], q[2]);
+        html.push('<tr><td>' + LABEL[r] + '</td><td>' + pct(counts[r] / total, 1) + '</td>' + [q[0], q[1], q[2]].map((v) => '<td class="' + (v === mx && v > 0 ? 'win' : v === 0 ? 'dim' : '') + '">' + pct(v, 1) + '</td>').join('') + '</tr>');
+      }
+      html.push('</tbody></table>');
+      if (token === calcToken) $('hint').innerHTML = html.join('');
+    }, 0);
+  }
+
+  // ---- casino name and automatic date/time ----
+  function esc(t) { return String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
+  function fmtHM(ts) { const t = new Date(ts); return String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0'); }
+  function fmtFull(ts) { const t = new Date(ts); return t.getFullYear() + '/' + (t.getMonth() + 1) + '/' + t.getDate() + ' ' + fmtHM(ts); }
+  function timeRange() {
+    const ts = entries.filter((e) => e.t).map((e) => e.t);
+    if (!ts.length) return null;
+    return { start: ts[0], end: ts[ts.length - 1] };
+  }
+  function renderMeta() {
+    const sel = $('casinoSel');
+    sel.innerHTML = '<option value="">（未選択）</option>' + casinos.map((c) => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('');
+    sel.value = casino;
+    $('casinoDel').disabled = !casino;
+    const tr = timeRange();
+    $('timeinfo').textContent = tr ? '記録開始 ' + fmtFull(tr.start) + '　最終 ' + fmtHM(tr.end) + '（端末の時計で自動記録）' : '記録を始めると、日時が自動で記録されます。';
+  }
+  $('casinoSel').addEventListener('change', () => { casino = $('casinoSel').value; save(); renderMeta(); });
+  $('casinoNew').addEventListener('click', () => { $('casinoForm').hidden = false; $('casinoName').focus(); });
+  $('casinoCancel').addEventListener('click', () => { $('casinoForm').hidden = true; $('casinoName').value = ''; });
+  function addCasino() {
+    const name = $('casinoName').value.trim().slice(0, 24);
+    if (!name) return;
+    if (!casinos.includes(name)) casinos.push(name);
+    casinos = casinos.slice(-20);
+    casino = name; $('casinoName').value = ''; $('casinoForm').hidden = true;
+    save(); renderMeta();
+  }
+  $('casinoOk').addEventListener('click', addCasino);
+  $('casinoName').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') addCasino(); });
+  $('casinoDel').addEventListener('click', function () {
+    if (!casino) return;
+    confirmTap('cdel', this, '削除', 'もう一度で削除', () => { casinos = casinos.filter((c) => c !== casino); casino = ''; save(); renderMeta(); });
+  });
+
+  // ---- saved records ----
+  function fmtTs(ts) { const t = new Date(ts); return (t.getMonth() + 1) + '/' + t.getDate() + ' ' + String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0'); }
+  function renderSaved() {
+    const box = $('saved');
+    if (!snaps.length) { box.innerHTML = '<span class="empty">「保存」を押すと、今の記録がここに残ります。</span>'; return; }
+    box.innerHTML = snaps.map((sn) => {
+      const dec = decodeEntries(sn.entries), d = derive(dec, sn.decks), s = summarize(d.hands, sn.commission !== false);
+      const bets = s.bets ? '　賭け ' + s.win + '勝' + s.lose + '敗　収支 ' + sgnUnits(s.net) : '';
+      const t0 = dec.length && dec[0].t ? dec[0].t : sn.id;
+      return '<div class="snap"><div><div class="t">' + fmtTs(t0) + '　' + esc(sn.casino || 'カジノ未設定') + '　' + sn.decks + 'デッキ</div><div class="m">' + s.total + '手　B' + s.B + ' P' + s.P + ' T' + s.T + bets + '</div></div>' +
+        '<div class="btns"><button type="button" class="ghost" data-act="load" data-id="' + sn.id + '">読込</button><button type="button" class="ghost" data-act="del" data-id="' + sn.id + '">削除</button></div></div>';
+    }).join('');
+  }
+  $('saved').addEventListener('click', (ev) => {
+    const b = ev.target.closest('button[data-act]');
+    if (!b) return;
+    const id = Number(b.dataset.id), sn = snaps.find((x) => x.id === id);
+    if (!sn) return;
+    if (b.dataset.act === 'del') confirmTap('del' + id, b, '削除', 'もう一度で削除', () => { snaps = snaps.filter((x) => x.id !== id); save(); renderSaved(); });
+    else {
+      const apply = () => { decks = sn.decks; commission = sn.commission !== false; casino = sn.casino || ''; if (casino && !casinos.includes(casino)) casinos.push(casino); entries = decodeEntries(sn.entries); bet = null; save(); render(); window.scrollTo(0, 0); };
+      if (!entries.length) apply(); else confirmTap('load' + id, b, '読込', '今の記録と置換', apply);
+    }
+  });
+
+  // ---- backup ----
+  function bkText() { return JSON.stringify({ decks, commission, casino, casinos, entries: encodeEntries(entries), saved: snaps }); }
+  $('bkCopy').addEventListener('click', () => {
+    const ta = $('bk'); ta.value = bkText(); ta.select();
+    const fail = () => { $('bkMsg').textContent = '選択済みです。長押しでコピーしてください'; };
+    try { navigator.clipboard.writeText(ta.value).then(() => { $('bkMsg').textContent = 'コピーしました'; }, fail); } catch (e) { fail(); }
+  });
+  $('bkRestore').addEventListener('click', () => {
+    try {
+      const o = JSON.parse($('bk').value);
+      if (!o || (o.decks !== 6 && o.decks !== 8) || !Array.isArray(o.entries)) throw new Error('bad');
+      const ne = decodeEntries(o.entries);
+      if (!ne || derive(ne, o.decks).bad) throw new Error('bad');
+      decks = o.decks; commission = o.commission !== false; entries = ne; bet = null; if (Array.isArray(o.saved)) snaps = o.saved.filter(validSnap).slice(0, 30); if (Array.isArray(o.casinos)) casinos = o.casinos.filter((x) => typeof x === 'string' && x.trim()).slice(0, 20); casino = typeof o.casino === 'string' ? o.casino : ''; if (casino && !casinos.includes(casino)) casinos.push(casino); save(); render(); $('bkMsg').textContent = '復元しました';
+    } catch (e) { $('bkMsg').textContent = '復元できません。コピーした文字列をそのまま貼り付けてください'; }
+  });
+
+  // ---- image ----
+  const FONT = "'Hiragino Sans','Noto Sans JP','Yu Gothic','Malgun Gothic',sans-serif";
+  const COL = { bg: '#0e3a31', panel: '#134a3d', line: '#2a6a58', ink: '#f3efe3', muted: '#a3bdb1', gold: '#e6c56e', b: '#5b9bf0', p: '#ef6a60', t: '#52c795' };
+  function drawGrid(ctx, road, x, y, size, maxCols, cellFn) {
+    const first = Math.max(0, road.cols - maxCols);
+    const shown = Math.min(road.cols, maxCols);
+    for (let c = 0; c < maxCols; c++) for (let r = 0; r < MAX_ROWS; r++) {
+      ctx.strokeStyle = 'rgba(42,106,88,.7)'; ctx.lineWidth = 1;
+      ctx.strokeRect(x + c * size + .5, y + r * size + .5, size, size);
+    }
+    for (let c = 0; c < shown; c++) for (let r = 0; r < MAX_ROWS; r++) {
+      const cell = road.cells[(first + c) + '-' + r];
+      if (cell) cellFn(ctx, cell, x + c * size, y + r * size, size);
+    }
+  }
+  function ring(ctx, cx, cy, rad, color, lw, fill) {
+    ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+    if (fill) { ctx.fillStyle = color; ctx.fill(); } else { ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.stroke(); }
+  }
+  function makeImage() {
+    const d = derive(entries, decks), hands = d.hands;
+    const infos = hands.map(handInfo);
+    const s = summarize(hands, commission), si = streakInfo(hands);
+    const W = 750, P = 24, cell = 24, maxCols = Math.floor((W - 2 * P) / cell), sm = 12, maxSmall = Math.floor((W - 2 * P) / sm);
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = 2400;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = COL.bg; ctx.fillRect(0, 0, W, 2400);
+    ctx.textBaseline = 'top';
+    const txt = (t, x, y, font, color, align) => { ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.fillText(t, x, y); ctx.textAlign = 'left'; };
+    const f = (px, bold) => (bold ? 'bold ' : '') + px + 'px ' + FONT;
+    const pc1 = (n, t) => (t ? (n / t * 100).toFixed(1) : '0.0') + '%';
+    let y = 22;
+    txt('バカラ記録', P, y, f(30, true), COL.gold);
+    ctx.font = f(30, true);
+    const tw = ctx.measureText('バカラ記録').width;
+    if (casino) txt(casino, P + tw + 16, y + 6, f(22, true), COL.ink);
+    y += 42;
+    const tr = timeRange();
+    let when;
+    if (tr) {
+      const sd = new Date(tr.start), ed = new Date(tr.end);
+      const sameDay = sd.toDateString() === ed.toDateString();
+      when = fmtFull(tr.start) + '〜' + (sameDay ? fmtHM(tr.end) : fmtFull(tr.end));
+    } else when = fmtFull(Date.now());
+    txt(when + '　' + decks + 'デッキ', P, y, f(18), COL.muted);
+    y += 34;
+    // headline numbers
+    txt('ゲーム数', P, y + 8, f(18), COL.muted); txt(String(s.total), P + 96, y, f(34, true), COL.ink);
+    txt('ドラゴン', 250, y + 8, f(18), COL.muted); txt(String(si.B.dragons + si.P.dragons) + '回', 330, y, f(34, true), COL.gold);
+    txt('B ' + si.B.dragons + ' / P ' + si.P.dragons, 430, y + 12, f(17), COL.muted);
+    txt('最長 B' + s.maxB + ' / P' + s.maxP, W - P, y + 12, f(18), COL.ink, 'right');
+    y += 52;
+    // ratios
+    [['バンカー', s.B, COL.b], ['プレイヤー', s.P, COL.p], ['タイ', s.T, COL.t]].forEach((it, i) => {
+      const x = P + i * 236;
+      ring(ctx, x + 9, y + 15, 9, it[2], 0, true);
+      txt(it[0] + ' ' + it[1], x + 26, y, f(20, true), COL.ink);
+      txt(pc1(it[1], s.total), x + 26, y + 24, f(17), COL.muted);
+    });
+    y += 56;
+    const nn = s.B + s.P;
+    txt('タイ除く　B勝率 ' + (nn ? (s.B / nn * 100).toFixed(1) : '-') + '%　P勝率 ' + (nn ? (s.P / nn * 100).toFixed(1) : '-') + '%', P, y, f(18), COL.muted);
+    y += 32;
+    if (s.bets) {
+      const dec = s.win + s.lose;
+      txt('賭け ' + s.bets + '回　' + s.win + '勝 ' + s.lose + '敗 ' + s.push + '分　勝率 ' + (dec ? (s.win / dec * 100).toFixed(1) : '-') + '%　負け比率 ' + (dec ? (s.lose / dec * 100).toFixed(1) : '-') + '%', P, y, f(19, true), COL.ink);
+      y += 30;
+      txt('収支 ' + sgnUnits(s.net) + ' 単位', P, y, f(19, true), s.net >= 0 ? '#8be7b4' : '#f2a79f');
+      y += 38;
+    } else y += 6;
+    // streak table
+    txt('連チャン（同じ側が続いた回数）', P, y, f(17, true), COL.gold); y += 26;
+    const labW = 56, colW = (W - 2 * P - labW) / 7;
+    ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(P, y, W - 2 * P, 28 * 3);
+    ['1連', '2連', '3連', '4連', '5連', '6連', '7連+'].forEach((h, i) => txt(h, P + labW + colW * i + colW / 2, y + 5, f(16), COL.muted, 'center'));
+    [['B', si.B, COL.b], ['P', si.P, COL.p]].forEach((rw, ri) => {
+      const yy = y + 28 * (ri + 1);
+      txt(rw[0], P + 10, yy + 3, f(19, true), rw[2]);
+      rw[1].runs.slice(1).forEach((n, i) => txt(String(n), P + labW + colW * i + colW / 2, yy + 3, f(19, n > 0), n ? COL.ink : '#5f7d71', 'center'));
+    });
+    y += 28 * 3 + 20;
+    // big road
+    txt('大路', P, y, f(17, true), COL.gold); y += 24;
+    const big = buildBigRoad(hands.map((h, i) => ({ result: h.result, six: infos[i].six, win: betOutcome(h, infos[i], commission).kind === 'win', total: h.result === 0 ? infos[i].b : h.result === 1 ? infos[i].p : null })));
+    drawGrid(ctx, big, P, y, cell, maxCols, (c, it, x, yy, sz) => {
+      ring(c, x + sz / 2, yy + sz / 2, sz / 2 - 4, it.side === 0 ? COL.b : COL.p, 3, !!it.win);
+      if (it.ties) { c.strokeStyle = COL.t; c.lineWidth = 3; c.beginPath(); c.moveTo(x + 4, yy + sz - 4); c.lineTo(x + sz - 4, yy + 4); c.stroke(); }
+      if (it.total !== null && it.total !== undefined) { c.fillStyle = it.win ? '#0b1f19' : (it.six ? COL.gold : COL.ink); c.font = f(13, true); c.textAlign = 'center'; c.fillText(String(it.total), x + sz / 2, yy + 5); c.textAlign = 'left'; }
+    });
+    y += 6 * cell + 18;
+    // bead plate
+    txt('珠盤路', P, y, f(17, true), COL.gold); y += 24;
+    const beadCols = Math.max(1, Math.ceil(hands.length / MAX_ROWS)), bead = { cols: beadCols, cells: {} };
+    hands.forEach((h, i) => { bead.cells[Math.floor(i / MAX_ROWS) + '-' + (i % MAX_ROWS)] = { side: h.result }; });
+    drawGrid(ctx, bead, P, y, cell, maxCols, (c, it, x, yy, sz) => {
+      ring(c, x + sz / 2, yy + sz / 2, sz / 2 - 3, it.side === 0 ? COL.b : it.side === 1 ? COL.p : COL.t, 0, true);
+      c.fillStyle = '#0b1f19'; c.font = f(13, true); c.textAlign = 'center'; c.fillText(letter(it.side), x + sz / 2, yy + 5); c.textAlign = 'left';
+    });
+    y += 6 * cell + 18;
+    // derived roads, compact
+    [['大眼仔', 1], ['小路', 2], ['曱甴路', 3]].forEach((df) => {
+      txt(df[0], P, y, f(15, true), COL.gold); y += 20;
+      const road = derivedRoad(hands, df[1]);
+      drawGrid(ctx, road, P, y, sm, maxSmall, (c, it, x, yy, sz) => {
+        const col = it.side === 0 ? COL.p : COL.b, cx = x + sz / 2, cy = yy + sz / 2;
+        if (df[1] === 1) ring(c, cx, cy, sz / 2 - 2, col, 2, false);
+        else if (df[1] === 2) ring(c, cx, cy, sz / 2 - 2, col, 0, true);
+        else { c.strokeStyle = col; c.lineWidth = 2; c.beginPath(); c.moveTo(x + 2, yy + sz - 2); c.lineTo(x + sz - 2, yy + 2); c.stroke(); }
+      });
+      y += 6 * sm + 8;
+    });
+    txt('塗りつぶし=賭けて勝った手　数字=勝った側の合計　緑斜線=タイ　金数字=バンカー6勝ち　ドラゴン=7連以上', P, y + 2, f(13), COL.muted);
+    y += 30;
+    const out = document.createElement('canvas'); out.width = W; out.height = y;
+    out.getContext('2d').drawImage(cv, 0, 0);
+    return out.toDataURL('image/png');
+  }
+  $('mkImg').addEventListener('click', () => {
+    if (!derive(entries, decks).hands.length) { $('ovImg').removeAttribute('src'); }
+    try { $('ovImg').src = makeImage(); $('ov').hidden = false; $('ov').scrollTop = 0; }
+    catch (e) { /* canvas unavailable */ }
+  });
+  $('ovClose').addEventListener('click', () => { $('ov').hidden = true; });
+
+  render();
+
+  // offline support: the service worker caches the page after the first visit
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => { /* offline mode unavailable */ }); });
+  }
+})();
+</script>
+</body>
+</html>

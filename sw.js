@@ -1,6 +1,6 @@
 // Offline cache. After the first online visit the app opens without a connection.
 // To publish an update, change CACHE (for example baccarat-record-v2) and upload this file with the new index.html.
-const CACHE = 'baccarat-record-v1';
+const CACHE = 'baccarat-record-v2';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {

@@ -102,15 +102,15 @@ td.dim { color: #6f8d81; }
 .grid { display: flex; overflow-x: auto; padding-bottom: 6px; min-height: 40px; }
 .gcol { display: flex; flex-direction: column; flex: none; }
 .gcell { width: 26px; height: 26px; display: grid; place-items: center; position: relative; border-right: 1px solid rgba(42,106,88,.55); border-bottom: 1px solid rgba(42,106,88,.55); }
-.gcell .six { position: absolute; font-size: 12px; font-weight: 800; color: var(--ink); line-height: 1; }
+.gcell .six { position: absolute; z-index: 2; text-shadow: 0 0 3px #04140f, 0 0 3px #04140f; font-size: 12px; font-weight: 800; color: var(--ink); line-height: 1; }
 .gcell .six.g { color: var(--gold); }
 .small .gcell { width: 16px; height: 16px; }
 .dot { width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid; position: relative; flex: none; }
+.dot.t { border-color: var(--tie); }
+.gcell .six.t { color: var(--tie); text-shadow: none; }
 .dot.b { border-color: var(--banker); } .dot.p { border-color: var(--player); }
 .dot.win.b { background: var(--banker); } .dot.win.p { background: var(--player); }
-.dot.win ~ .six, .dot.win ~ .six.g { color: #0b1f19; }
-.gcell .tm { position: absolute; left: 50%; top: 50%; width: 30px; height: 3px; margin: -1.5px 0 0 -15px; background: var(--tie); transform: rotate(-45deg); box-shadow: 0 0 0 1px #04140f; z-index: 2; pointer-events: none; }
-.gcell .tc { position: absolute; right: 0; bottom: 0; z-index: 3; font-size: 10px; font-weight: 800; line-height: 1; color: #04140f; background: var(--tie); border-radius: 3px; padding: 1px 2px; }
+.dot.win ~ .six, .dot.win ~ .six.g { color: #0b1f19; text-shadow: none; }
 .mk { display: block; flex: none; }
 .bead { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: #0b1f19; }
 .bead.b { background: var(--banker); } .bead.p { background: var(--player); } .bead.t { background: var(--tie); }
@@ -447,14 +447,15 @@ function layoutSides(items) {
   }
   return { cells, cols: maxCol + 1 };
 }
-// big road: ties are marked on the previous cell (leading ties are carried to the first cell)
+// big road: a tie takes its own cell (green T) and stays in the current column
 function buildBigRoad(hands) {
   const items = [];
-  let pendingTie = 0;
+  let lastSide = 2; // a tie takes its own cell and stays in the current column
   for (const h of hands) {
     const six = !!h.six;
-    if (h.result === 2) { if (items.length) items[items.length - 1].ties++; else pendingTie++; continue; }
-    items.push({ side: h.result, ties: items.length ? 0 : pendingTie, six, win: !!h.win, total: h.total === undefined ? null : h.total });
+    if (h.result === 2) { items.push({ side: lastSide, tie: true }); continue; }
+    lastSide = h.result;
+    items.push({ side: h.result, six, win: !!h.win, total: h.total === undefined ? null : h.total });
   }
   return layoutSides(items);
 }
@@ -725,8 +726,8 @@ function streakInfo(hands) {
     const infos = hands.map(handInfo);
     if (view === 'big') {
       const road = buildBigRoad(hands.map((h, i) => ({ result: h.result, six: infos[i].six, win: betOutcome(h, infos[i], commission).kind === 'win', total: h.result === 0 ? infos[i].b : h.result === 1 ? infos[i].p : null })));
-      box.innerHTML = gridHTML(road, (cell) => cell ? '<div class="dot ' + (cell.side === 0 ? 'b' : 'p') + (cell.win ? ' win' : '') + '"></div>' + (cell.ties ? '<i class="tm"></i>' + (cell.ties > 1 ? '<b class="tc">' + cell.ties + '</b>' : '') : '') + (cell.total !== null && cell.total !== undefined ? '<span class="six' + (cell.six ? ' g' : '') + '">' + cell.total + '</span>' : '') : '') +
-        '<p class="note" style="margin-top:2px">塗りつぶしは賭けて勝った手、数字は勝った側の合計、緑の斜線はタイ(2回以上は回数の数字つき)、金の数字はバンカー6勝ちです。</p>';
+      box.innerHTML = gridHTML(road, (cell) => cell && cell.tie ? '<div class="dot t"></div><span class="six t">T</span>' : cell ? '<div class="dot ' + (cell.side === 0 ? 'b' : 'p') + (cell.win ? ' win' : '') + '"></div>' + (cell.ties ? '<i class="tm"></i>' + (cell.ties > 1 ? '<b class="tc">' + cell.ties + '</b>' : '') : '') + (cell.total !== null && cell.total !== undefined ? '<span class="six' + (cell.six ? ' g' : '') + '">' + cell.total + '</span>' : '') : '') +
+        '<p class="note" style="margin-top:2px">塗りつぶしは賭けて勝った手、数字は勝った側の合計、緑の丸のTはタイ、金の数字はバンカー6勝ちです。</p>';
     } else if (view === 'bead') {
       const cols = Math.ceil(hands.length / MAX_ROWS);
       let html = '<div class="grid" data-scroll>';
@@ -987,13 +988,9 @@ function streakInfo(hands) {
     txt('大路', P, y, f(17, true), COL.gold); y += 24;
     const big = buildBigRoad(hands.map((h, i) => ({ result: h.result, six: infos[i].six, win: betOutcome(h, infos[i], commission).kind === 'win', total: h.result === 0 ? infos[i].b : h.result === 1 ? infos[i].p : null })));
     drawGrid(ctx, big, P, y, cell, maxCols, (c, it, x, yy, sz) => {
+      if (it.tie) { ring(c, x + sz / 2, yy + sz / 2, sz / 2 - 4, COL.t, 3, false); c.fillStyle = COL.t; c.font = f(13, true); c.textAlign = 'center'; c.fillText('T', x + sz / 2, yy + 5); c.textAlign = 'left'; return; }
       ring(c, x + sz / 2, yy + sz / 2, sz / 2 - 4, it.side === 0 ? COL.b : COL.p, 3, !!it.win);
       if (it.total !== null && it.total !== undefined) { c.fillStyle = it.win ? '#0b1f19' : (it.six ? COL.gold : COL.ink); c.font = f(13, true); c.textAlign = 'center'; c.fillText(String(it.total), x + sz / 2, yy + 5); c.textAlign = 'left'; }
-      if (it.ties) {
-        c.lineCap = 'round'; c.beginPath(); c.moveTo(x + 3, yy + sz - 3); c.lineTo(x + sz - 3, yy + 3);
-        c.strokeStyle = '#04140f'; c.lineWidth = 6; c.stroke(); c.strokeStyle = COL.t; c.lineWidth = 3.5; c.stroke(); c.lineCap = 'butt';
-        if (it.ties > 1) { c.fillStyle = COL.t; c.font = f(12, true); c.textAlign = 'right'; c.fillText(String(it.ties), x + sz - 2, yy + sz - 3); c.textAlign = 'left'; }
-      }
     });
     y += 6 * cell + 18;
     // bead plate
@@ -1017,7 +1014,7 @@ function streakInfo(hands) {
       });
       y += 6 * sm + 8;
     });
-    txt('塗りつぶし=賭けて勝った手　数字=勝った側の合計　緑斜線=タイ　金数字=バンカー6勝ち　ドラゴン=7連以上', P, y + 2, f(13), COL.muted);
+    txt('塗りつぶし=賭けて勝った手　数字=勝った側の合計　緑のT=タイ　金数字=バンカー6勝ち　ドラゴン=7連以上', P, y + 2, f(13), COL.muted);
     y += 30;
     const out = document.createElement('canvas'); out.width = W; out.height = y;
     out.getContext('2d').drawImage(cv, 0, 0);

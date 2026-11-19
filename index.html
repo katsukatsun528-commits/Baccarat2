@@ -93,6 +93,7 @@ td.dim { color: #6f8d81; }
 .htable td.res { font-weight: 800; }
 .htable td.res.b { color: var(--banker); } .htable td.res.p { color: var(--player); } .htable td.res.t { color: var(--tie); }
 .htable tr.pre td { opacity: .6; }
+.htable button.bt { border: 1px solid var(--line); background: rgba(255,255,255,.06); color: inherit; border-radius: 6px; padding: 3px 9px; font-size: 13px; font-weight: 700; }
 .tag { display: inline-block; font-size: 10px; padding: 0 4px; border-radius: 4px; background: rgba(230,197,110,.25); color: var(--gold); margin-left: 4px; }
 .wl-b { color: var(--banker); } .wl-p2 { color: var(--player); }
 .wl-w { color: #8be7b4; font-weight: 700; } .wl-l { color: #f2a79f; font-weight: 700; } .wl-p { color: var(--muted); }
@@ -107,6 +108,9 @@ td.dim { color: #6f8d81; }
 .small .gcell { width: 16px; height: 16px; }
 .dot { width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid; position: relative; flex: none; }
 .dot.t { border-color: var(--tie); }
+.gcell .mkb { position: absolute; top: -1px; right: -1px; z-index: 3; font-size: 9px; font-style: normal; font-weight: 800; line-height: 1; padding: 1px 2px; border-radius: 3px; color: #1a0f00; background: #ff9d3c; }
+.gcell .mkb.dr { background: #b58cff; color: #1a0033; }
+.tag.tg { background: rgba(255,157,60,.3); color: #ff9d3c; } .tag.dr { background: rgba(181,140,255,.3); color: #c8a8ff; }
 .gcell .six.t { color: var(--tie); text-shadow: none; }
 .dot.b { border-color: var(--banker); } .dot.p { border-color: var(--player); }
 .dot.win.b { background: var(--banker); } .dot.win.p { background: var(--player); }
@@ -183,6 +187,10 @@ select, input.tx { background: rgba(0,0,0,.25); color: var(--ink); border: 1px s
       <div class="seg" role="group" aria-label="手数料" id="commSeg">
         <button type="button" data-comm="1" aria-pressed="true">手数料5%</button>
         <button type="button" data-comm="0" aria-pressed="false">なし(6半額)</button>
+      </div>
+      <div class="seg" role="group" aria-label="マーク" id="markSeg">
+        <button type="button" data-mk="tiger" aria-pressed="false">虎 B6勝ち</button>
+        <button type="button" data-mk="dragon" aria-pressed="false">竜 P7勝ち</button>
       </div>
     </div>
     <div class="row">
@@ -346,19 +354,20 @@ function stateFromCards(cards) {
   for (const c of cards) { const k = nextSlot(s); if (k === null) break; s[k] = c; }
   return s;
 }
-// entries: {res:'B'|'P'|'T'} results typed before joining, or {r, burn?, bet?} cards. bet sits on the card that ends a hand.
+// entries: {res:'B'|'P'|'T', bet?} results typed without seeing the cards (before joining or any time between hands), or {r, burn?, bet?} cards. bet sits on the card that ends a hand.
 function derive(entries, decks) {
   const raw = initCounts(decks);
   const hands = [];
   let cur = [], pre = 0, bad = false;
-  for (const e of entries) {
-    if (e.res) { hands.push({ cards: null, result: 'BPT'.indexOf(e.res), bet: null, pre: true, t: null }); pre++; continue; }
+  for (let ei = 0; ei < entries.length; ei++) {
+    const e = entries[ei];
+    if (e.res) { if (cur.length) { bad = true; continue; } hands.push({ cards: null, result: 'BPT'.indexOf(e.res), bet: e.bet || null, pre: true, t: e.t || null, ei }); pre++; continue; }
     raw[e.r]--;
     if (raw[e.r] < 0) bad = true;
     if (e.burn) continue;
     cur.push(e.r);
     const st = stateFromCards(cur);
-    if (nextSlot(st) === null) { hands.push({ cards: cur, result: resultOf(st), bet: e.bet || null, pre: false, t: e.t || null }); cur = []; }
+    if (nextSlot(st) === null) { hands.push({ cards: cur, result: resultOf(st), bet: e.bet || null, pre: false, t: e.t || null, ei }); cur = []; }
   }
   // hands played before joining were not seen: remove their expected cards in proportion to the shoe
   const counts = raw.slice();
@@ -397,11 +406,11 @@ function evs(p, commission) {
   return { banker: commission ? 0.95 * p[0] - p[1] : p[0] - 0.5 * p[3] - p[1], player: p[1] - p[0], tie: 9 * p[2] - 1 };
 }
 function handInfo(h) {
-  if (!h.cards) return { st: null, p: null, b: null, natural: false, six: false };
+  if (!h.cards) return { st: null, p: null, b: null, natural: false, six: false, dragon: false };
   const st = stateFromCards(h.cards);
   const p = ptOf(st), b = btOf(st);
   const natural = (((st.p1 + st.p2) % 10) >= 8) || (((st.b1 + st.b2) % 10) >= 8);
-  return { st, p, b, natural, six: h.result === 0 && b === 6 };
+  return { st, p, b, natural, six: h.result === 0 && b === 6, dragon: h.result === 1 && p === 7 };
 }
 // what my bet did on this hand: {kind:'win'|'lose'|'push'|null, delta}
 function betOutcome(h, info, commission) {
@@ -420,8 +429,8 @@ function summarize(hands, commission) {
       if (side === 0 && run > s.maxB) s.maxB = run;
       if (side === 1 && run > s.maxP) s.maxP = run;
     }
-    if (!h.pre) {
-      s.played++;
+    if (!h.pre || h.bet) {
+      if (!h.pre) s.played++;
       if (h.bet) {
         s.bets++;
         const o = betOutcome(h, handInfo(h), commission);
@@ -455,7 +464,7 @@ function buildBigRoad(hands) {
     const six = !!h.six;
     if (h.result === 2) { items.push({ side: lastSide, tie: true }); continue; }
     lastSide = h.result;
-    items.push({ side: h.result, six, win: !!h.win, total: h.total === undefined ? null : h.total });
+    items.push({ side: h.result, six, tiger: !!h.tiger, dragon: !!h.dragon, win: !!h.win, total: h.total === undefined ? null : h.total });
   }
   return layoutSides(items);
 }
@@ -488,12 +497,12 @@ function derivedSeq(lens, k) {
 function derivedRoad(hands, k) {
   return layoutSides(derivedSeq(streakLens(hands), k).map((x) => ({ side: x === 'R' ? 0 : 1, kind: x })));
 }
-function encodeEntries(entries) { return entries.map((e) => (e.res ? ['R', e.res, e.t || 0] : [e.r, e.burn ? 1 : 0, e.bet || '', e.t || 0])); }
+function encodeEntries(entries) { return entries.map((e) => (e.res ? ['R', e.res, e.t || 0, e.bet || ''] : [e.r, e.burn ? 1 : 0, e.bet || '', e.t || 0])); }
 function decodeEntries(arr) {
   const out = [];
   for (const x of arr) {
     if (!Array.isArray(x)) return null;
-    if (x[0] === 'R') { if (!['B', 'P', 'T'].includes(x[1])) return null; const er = { res: x[1] }; if (x[2] > 0) er.t = x[2]; out.push(er); continue; }
+    if (x[0] === 'R') { if (!['B', 'P', 'T'].includes(x[1])) return null; const er = { res: x[1] }; if (x[2] > 0) er.t = x[2]; if (x[3] === 'B' || x[3] === 'P') er.bet = x[3]; out.push(er); continue; }
     if (!Number.isInteger(x[0]) || x[0] < 0 || x[0] > 9) return null;
     const e = { r: x[0], burn: x[1] === 1 };
     if (x[2] === 'B' || x[2] === 'P') e.bet = x[2];
@@ -528,7 +537,7 @@ function streakInfo(hands) {
 (function () {
   const $ = (id) => document.getElementById(id);
   const KEY = 'baccarat-record-v2';
-  let decks = 8, commission = true, mode = 'hand', view = 'big', bet = null, entries = [], snaps = [], casino = '', casinos = [];
+  let decks = 8, commission = true, tiger = false, dragon = false, mode = 'hand', view = 'big', bet = null, entries = [], snaps = [], casino = '', casinos = [];
   const armed = {};
   let calcToken = 0;
 
@@ -538,6 +547,7 @@ function streakInfo(hands) {
       const dec = saved.entries.some((x) => Array.isArray(x)) ? decodeEntries(saved.entries) : saved.entries.filter((e) => e && Number.isInteger(e.r) && e.r >= 0 && e.r <= 9).map((e) => ({ r: e.r, burn: !!e.burn }));
       if (dec && !derive(dec, saved.decks).bad) { decks = saved.decks; entries = dec; }
       if (saved.commission === false) commission = false;
+      tiger = saved.tiger === true; dragon = saved.dragon === true;
       if (Array.isArray(saved.saved)) snaps = saved.saved.filter(validSnap).slice(0, 30);
       if (Array.isArray(saved.casinos)) casinos = saved.casinos.filter((x) => typeof x === 'string' && x.trim()).slice(0, 20);
       if (typeof saved.casino === 'string' && saved.casino) { casino = saved.casino; if (!casinos.includes(casino)) casinos.push(casino); }
@@ -548,7 +558,7 @@ function streakInfo(hands) {
     const dec = decodeEntries(x.entries);
     return !!dec && !derive(dec, x.decks).bad;
   }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify({ decks, commission, casino, casinos, entries: encodeEntries(entries), saved: snaps })); } catch (e) { /* ignore */ } }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify({ decks, commission, tiger, dragon, casino, casinos, entries: encodeEntries(entries), saved: snaps })); } catch (e) { /* ignore */ } }
 
   function pct(x, d) { return (x * 100).toFixed(d === undefined ? 1 : d) + '%'; }
   function signed(x, d) { const v = x * 100; return (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(d); }
@@ -573,8 +583,10 @@ function streakInfo(hands) {
     pad.appendChild(b);
   });
   document.querySelectorAll('#respad button').forEach((b) => b.addEventListener('click', () => {
-    if (derive(entries, decks).hasCards) return;
-    entries.push({ res: b.dataset.res, t: Date.now() }); save(); render();
+    if (derive(entries, decks).cur.length > 0) return;
+    const e = { res: b.dataset.res, t: Date.now() };
+    if (bet) { e.bet = bet; bet = null; }
+    entries.push(e); save(); render();
   }));
   document.querySelectorAll('#bets button').forEach((b) => b.addEventListener('click', () => { bet = b.dataset.bet || null; renderBet(); }));
 
@@ -614,6 +626,7 @@ function streakInfo(hands) {
     if (!entries.length) apply(); else confirmTap('deck' + n, b, n + 'デッキ', '記録を消して切替', apply);
   }));
   document.querySelectorAll('#commSeg button').forEach((b) => b.addEventListener('click', () => { commission = b.dataset.comm === '1'; save(); render(); }));
+  document.querySelectorAll('#markSeg button').forEach((b) => b.addEventListener('click', () => { if (b.dataset.mk === 'tiger') tiger = !tiger; else dragon = !dragon; save(); render(); }));
   document.querySelectorAll('#modeSeg button').forEach((b) => b.addEventListener('click', () => { mode = b.dataset.mode; render(); }));
   document.querySelectorAll('#viewSeg button').forEach((b) => b.addEventListener('click', () => { view = b.dataset.view; renderRoad(derive(entries, decks).hands); }));
 
@@ -648,15 +661,16 @@ function streakInfo(hands) {
     const total = Math.round(sum(counts)), initTotal = 52 * decks;
 
     // mode rules: results-only before the first card; burn only between hands
-    if (mode === 'res' && d.hasCards) mode = 'hand';
+    if (mode === 'res' && cur.length > 0) mode = 'hand';
     if (mode === 'burn' && cur.length > 0) mode = 'hand';
     document.body.dataset.mode = mode;
     document.querySelectorAll('#deckSeg button').forEach((b) => { b.setAttribute('aria-pressed', String(Number(b.dataset.decks) === decks)); if (!armed['deck' + b.dataset.decks]) b.textContent = b.dataset.decks + 'デッキ'; });
     document.querySelectorAll('#commSeg button').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.comm === '1') === commission)));
+    document.querySelectorAll('#markSeg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mk === 'tiger' ? tiger : dragon)));
     document.querySelectorAll('#modeSeg button').forEach((b) => {
       b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
       if (b.dataset.mode === 'burn') b.disabled = cur.length > 0;
-      if (b.dataset.mode === 'res') b.disabled = d.hasCards;
+      if (b.dataset.mode === 'res') b.disabled = cur.length > 0;
     });
     $('undo').disabled = entries.length === 0;
     $('newShoe').disabled = entries.length === 0;
@@ -668,7 +682,7 @@ function streakInfo(hands) {
       b.querySelector('span').textContent = (d.estimated ? '≈' : '残') + Math.round(counts[r]);
       b.disabled = raw[r] <= 0 || (mode === 'burn' && cur.length > 0);
     });
-    $('left').textContent = d.hasCards || !d.pre ? '残 ' + total + ' / ' + initTotal + (d.estimated ? '(推定)' : '') : '参加前 ' + d.pre + '手';
+    $('left').textContent = d.hasCards || !d.pre ? '残 ' + total + ' / ' + initTotal + (d.estimated ? '(推定)' : '') : '結果のみ ' + d.pre + '手';
     renderBet();
 
     // hand slots; the previous hand stays dimmed until a new one starts
@@ -686,7 +700,7 @@ function streakInfo(hands) {
       const wl = o.kind === 'win' ? '　<b>勝ち ' + sgnUnits(o.delta) + '</b>' : o.kind === 'lose' ? '　<b>負け −1.00</b>' : o.kind === 'push' ? '　<b>引き分け</b>' : '';
       $('status').innerHTML = '前の手は <b>' + sideName(h.result) + '</b>' + wl + '。次は <b>' + SLOT_NAME.p1 + '</b> を押してください。';
     } else if (mode === 'res') {
-      $('status').innerHTML = '<b>参加前の結果</b>だけを B / T / P で入力します。札を押し始めた所から、札を記録します。';
+      $('status').innerHTML = '<b>結果のみ</b>：札が見えなかった手の結果を B / T / P で入力します。賭けていたら、先に賭け先を選んでください。残りカードは推定になります。';
     } else if (mode === 'burn') {
       $('status').innerHTML = '<b>バーン</b>：シュー開始時に捨てられた札を入力します。手札には数えず、残りカードから除きます。';
     } else {
@@ -725,9 +739,9 @@ function streakInfo(hands) {
     if (!hands.length) { box.innerHTML = '<span class="empty">手が終わると、ここに記録されます。</span>'; return; }
     const infos = hands.map(handInfo);
     if (view === 'big') {
-      const road = buildBigRoad(hands.map((h, i) => ({ result: h.result, six: infos[i].six, win: betOutcome(h, infos[i], commission).kind === 'win', total: h.result === 0 ? infos[i].b : h.result === 1 ? infos[i].p : null })));
-      box.innerHTML = gridHTML(road, (cell) => cell && cell.tie ? '<div class="dot t"></div><span class="six t">T</span>' : cell ? '<div class="dot ' + (cell.side === 0 ? 'b' : 'p') + (cell.win ? ' win' : '') + '"></div>' + (cell.ties ? '<i class="tm"></i>' + (cell.ties > 1 ? '<b class="tc">' + cell.ties + '</b>' : '') : '') + (cell.total !== null && cell.total !== undefined ? '<span class="six' + (cell.six ? ' g' : '') + '">' + cell.total + '</span>' : '') : '') +
-        '<p class="note" style="margin-top:2px">塗りつぶしは賭けて勝った手、数字は勝った側の合計、緑の丸のTはタイ、金の数字はバンカー6勝ちです。</p>';
+      const road = buildBigRoad(hands.map((h, i) => ({ result: h.result, six: infos[i].six, tiger: tiger && infos[i].six, dragon: dragon && infos[i].dragon, win: betOutcome(h, infos[i], commission).kind === 'win', total: h.result === 0 ? infos[i].b : h.result === 1 ? infos[i].p : null })));
+      box.innerHTML = gridHTML(road, (cell) => cell && cell.tie ? '<div class="dot t"></div><span class="six t">T</span>' : cell ? '<div class="dot ' + (cell.side === 0 ? 'b' : 'p') + (cell.win ? ' win' : '') + '"></div>' + (cell.ties ? '<i class="tm"></i>' + (cell.ties > 1 ? '<b class="tc">' + cell.ties + '</b>' : '') : '') + (cell.tiger ? '<i class="mkb">虎</i>' : cell.dragon ? '<i class="mkb dr">竜</i>' : '') + (cell.total !== null && cell.total !== undefined ? '<span class="six' + (cell.six ? ' g' : '') + '">' + cell.total + '</span>' : '') : '') +
+        '<p class="note" style="margin-top:2px">塗りつぶしは賭けて勝った手、数字は勝った側の合計、緑の丸のTはタイ、虎=バンカー6勝ち、竜=プレイヤー7勝ち(ボタンで表示を切替)、金の数字はバンカー6勝ちです。</p>';
     } else if (view === 'bead') {
       const cols = Math.ceil(hands.length / MAX_ROWS);
       let html = '<div class="grid" data-scroll>';
@@ -744,19 +758,27 @@ function streakInfo(hands) {
         return '<div class="dlabel">' + df[0] + '</div>' + (road.cols ? gridHTML(road, (cell) => cell ? markSVG(df[2], cell.side) : '', true) : '<div class="empty">まだ描けません</div>');
       }).join('') + '<p class="note">赤は前の並びと同じ展開、青は違う展開です。</p>';
     } else {
+      const betBtn = (h) => '<button type="button" class="bt" data-ei="' + h.ei + '">' + (h.bet || '見') + '</button>';
       let html = '<div class="scroll htable"><table><thead><tr><th>#</th><th>プレイヤー</th><th>バンカー</th><th>結果</th><th>賭け</th><th>損益</th></tr></thead><tbody>';
       for (let i = hands.length - 1; i >= 0; i--) {
         const h = hands[i], f = infos[i];
-        if (h.pre) { html += '<tr class="pre"><td>' + (i + 1) + '</td><td class="hc" colspan="2">参加前</td><td class="res ' + cls(h.result) + '">' + letter(h.result) + '</td><td>-</td><td>-</td></tr>'; continue; }
+        if (h.pre) { const po = betOutcome(h, f, commission), pw = po.kind === 'win' ? '<span class="wl-w">' + sgnUnits(po.delta) + '</span>' : po.kind === 'lose' ? '<span class="wl-l">−1.00</span>' : po.kind === 'push' ? '<span class="wl-p">±0</span>' : '-'; html += '<tr class="pre"><td>' + (i + 1) + '</td><td class="hc" colspan="2">結果のみ</td><td class="res ' + cls(h.result) + '">' + letter(h.result) + '</td><td>' + betBtn(h) + '</td><td>' + pw + '</td></tr>'; continue; }
         const st = f.st, o = betOutcome(h, f, commission);
         const pc = [st.p1, st.p2, st.p3].filter((v) => v !== null).map((v) => SHORT[v]).join(' ');
         const bc = [st.b1, st.b2, st.b3].filter((v) => v !== null).map((v) => SHORT[v]).join(' ');
         const wl = o.kind === 'win' ? '<span class="wl-w">' + sgnUnits(o.delta) + '</span>' : o.kind === 'lose' ? '<span class="wl-l">−1.00</span>' : o.kind === 'push' ? '<span class="wl-p">±0</span>' : '<span class="wl-p">-</span>';
         html += '<tr><td>' + (i + 1) + (h.t ? '<small class="tm">' + fmtHM(h.t) + '</small>' : '') + '</td><td class="hc">' + pc + '<small>= ' + f.p + '</small></td><td class="hc">' + bc + '<small>= ' + f.b + '</small></td>' +
-          '<td class="res ' + cls(h.result) + '">' + letter(h.result) + (f.natural ? '<span class="tag">N</span>' : '') + (f.six ? '<span class="tag">6</span>' : '') + '</td>' +
-          '<td>' + (h.bet || '見') + '</td><td>' + wl + '</td></tr>';
+          '<td class="res ' + cls(h.result) + '">' + letter(h.result) + (f.natural ? '<span class="tag">N</span>' : '') + (f.six ? '<span class="tag">6</span>' : '') + (tiger && f.six ? '<span class="tag tg">虎</span>' : '') + (dragon && f.dragon ? '<span class="tag dr">竜</span>' : '') + '</td>' +
+          '<td>' + betBtn(h) + '</td><td>' + wl + '</td></tr>';
       }
-      box.innerHTML = html + '</tbody></table></div><p class="note" style="margin-top:6px">新しい手が上です。Nはナチュラル、6はバンカー6勝ち、見は見送りです。</p>';
+      box.innerHTML = html + '</tbody></table></div><p class="note" style="margin-top:6px">新しい手が上です。Nはナチュラル、6はバンカー6勝ち、見は見送りです。賭けの欄を押すと、見→B→P の順に修正できます。</p>';
+      box.querySelectorAll('button.bt').forEach((bt) => bt.addEventListener('click', () => {
+        const ent = entries[Number(bt.dataset.ei)]; if (!ent) return;
+        const nx = { '': 'B', B: 'P', P: '' }[ent.bet || '']; if (nx) ent.bet = nx; else delete ent.bet;
+        const hb = box.querySelector('.htable'), top = hb ? hb.scrollTop : 0;
+        save(); render();
+        const hb2 = $('view') && $('view').querySelector('.htable'); if (hb2) hb2.scrollTop = top;
+      }));
     }
     const sb = box.querySelector('[data-scroll]'); if (sb) sb.scrollLeft = sb.scrollWidth;
   }
@@ -766,11 +788,14 @@ function streakInfo(hands) {
   function renderStats(hands) {
     const s = summarize(hands, commission);
     const nn = s.B + s.P;
+    const mk = { tiger: 0, dragon: 0 }; hands.forEach((h) => { const f = handInfo(h); if (f.six) mk.tiger++; if (f.dragon) mk.dragon++; });
     let html = '<h3>出た結果</h3>' +
       statBox('ゲーム数', s.total, s.pre ? '' : '') +
       statBox('バンカー', s.B, s.total ? pct(s.B / s.total, 1) : '-', 'b') +
       statBox('プレイヤー', s.P, s.total ? pct(s.P / s.total, 1) : '-', 'p') +
       statBox('タイ', s.T, s.total ? pct(s.T / s.total, 1) : '-', 't') +
+      (tiger ? statBox('虎 B6勝ち', mk.tiger, s.total ? pct(mk.tiger / s.total, 1) : '-') : '') +
+      (dragon ? statBox('竜 P7勝ち', mk.dragon, s.total ? pct(mk.dragon / s.total, 1) : '-') : '') +
       statBox('B勝率（タイ除く）', nn ? pct(s.B / nn, 1) : '-', '') +
       statBox('P勝率（タイ除く）', nn ? pct(s.P / nn, 1) : '-', '') +
       statBox('最長連続', 'B' + s.maxB + ' / P' + s.maxP, s.curSide === null ? '' : '今 ' + (s.curSide === 0 ? 'B' : 'P') + ' ' + s.curRun);
@@ -809,7 +834,7 @@ function streakInfo(hands) {
       const anyPos = ev.banker > 0 || ev.player > 0 || ev.tie > 0;
       $('probnote').textContent = (curState.p1 === null ? '次の1手の確率です。' : '入力済みの札を反映した、この手の最終確率です。') +
         (anyPos ? '期待値がプラスの賭け先があります。' : '期待値はすべてマイナスです。') +
-        (d.estimated ? '参加前の ' + d.pre + '手の札は未入力のため、残りカードは推定です。' : '');
+        (d.estimated ? '結果のみの ' + d.pre + '手は札が未入力のため、残りカードは推定です。' : '');
       const slot = nextSlot(curState);
       if (slot === null) return;
       $('hinttitle').textContent = SLOT_NAME[slot] + 'の札ごとの勝利確率';
@@ -887,7 +912,7 @@ function streakInfo(hands) {
   });
 
   // ---- backup ----
-  function bkText() { return JSON.stringify({ decks, commission, casino, casinos, entries: encodeEntries(entries), saved: snaps }); }
+  function bkText() { return JSON.stringify({ decks, commission, tiger, dragon, casino, casinos, entries: encodeEntries(entries), saved: snaps }); }
   $('bkCopy').addEventListener('click', () => {
     const ta = $('bk'); ta.value = bkText(); ta.select();
     const fail = () => { $('bkMsg').textContent = '選択済みです。長押しでコピーしてください'; };
@@ -899,7 +924,7 @@ function streakInfo(hands) {
       if (!o || (o.decks !== 6 && o.decks !== 8) || !Array.isArray(o.entries)) throw new Error('bad');
       const ne = decodeEntries(o.entries);
       if (!ne || derive(ne, o.decks).bad) throw new Error('bad');
-      decks = o.decks; commission = o.commission !== false; entries = ne; bet = null; if (Array.isArray(o.saved)) snaps = o.saved.filter(validSnap).slice(0, 30); if (Array.isArray(o.casinos)) casinos = o.casinos.filter((x) => typeof x === 'string' && x.trim()).slice(0, 20); casino = typeof o.casino === 'string' ? o.casino : ''; if (casino && !casinos.includes(casino)) casinos.push(casino); save(); render(); $('bkMsg').textContent = '復元しました';
+      decks = o.decks; commission = o.commission !== false; tiger = o.tiger === true; dragon = o.dragon === true; entries = ne; bet = null; if (Array.isArray(o.saved)) snaps = o.saved.filter(validSnap).slice(0, 30); if (Array.isArray(o.casinos)) casinos = o.casinos.filter((x) => typeof x === 'string' && x.trim()).slice(0, 20); casino = typeof o.casino === 'string' ? o.casino : ''; if (casino && !casinos.includes(casino)) casinos.push(casino); save(); render(); $('bkMsg').textContent = '復元しました';
     } catch (e) { $('bkMsg').textContent = '復元できません。コピーした文字列をそのまま貼り付けてください'; }
   });
 
@@ -986,10 +1011,11 @@ function streakInfo(hands) {
     y += 28 * 3 + 20;
     // big road
     txt('大路', P, y, f(17, true), COL.gold); y += 24;
-    const big = buildBigRoad(hands.map((h, i) => ({ result: h.result, six: infos[i].six, win: betOutcome(h, infos[i], commission).kind === 'win', total: h.result === 0 ? infos[i].b : h.result === 1 ? infos[i].p : null })));
+    const big = buildBigRoad(hands.map((h, i) => ({ result: h.result, six: infos[i].six, tiger: tiger && infos[i].six, dragon: dragon && infos[i].dragon, win: betOutcome(h, infos[i], commission).kind === 'win', total: h.result === 0 ? infos[i].b : h.result === 1 ? infos[i].p : null })));
     drawGrid(ctx, big, P, y, cell, maxCols, (c, it, x, yy, sz) => {
       if (it.tie) { ring(c, x + sz / 2, yy + sz / 2, sz / 2 - 4, COL.t, 3, false); c.fillStyle = COL.t; c.font = f(13, true); c.textAlign = 'center'; c.fillText('T', x + sz / 2, yy + 5); c.textAlign = 'left'; return; }
       ring(c, x + sz / 2, yy + sz / 2, sz / 2 - 4, it.side === 0 ? COL.b : COL.p, 3, !!it.win);
+      if (it.tiger || it.dragon) { c.fillStyle = it.tiger ? '#ff9d3c' : '#b58cff'; c.fillRect(x + sz - 14, yy + 1, 13, 13); c.fillStyle = '#1a0f00'; c.font = f(11, true); c.textAlign = 'center'; c.fillText(it.tiger ? '虎' : '竜', x + sz - 7.5, yy + 11); c.textAlign = 'left'; }
       if (it.total !== null && it.total !== undefined) { c.fillStyle = it.win ? '#0b1f19' : (it.six ? COL.gold : COL.ink); c.font = f(13, true); c.textAlign = 'center'; c.fillText(String(it.total), x + sz / 2, yy + 5); c.textAlign = 'left'; }
     });
     y += 6 * cell + 18;
@@ -1014,7 +1040,7 @@ function streakInfo(hands) {
       });
       y += 6 * sm + 8;
     });
-    txt('塗りつぶし=賭けて勝った手　数字=勝った側の合計　緑のT=タイ　金数字=バンカー6勝ち　ドラゴン=7連以上', P, y + 2, f(13), COL.muted);
+    txt('塗りつぶし=賭けて勝った手　数字=勝った側の合計　緑のT=タイ　虎=B6勝ち　竜=P7勝ち　金数字=バンカー6勝ち　ドラゴン=7連以上', P, y + 2, f(13), COL.muted);
     y += 30;
     const out = document.createElement('canvas'); out.width = W; out.height = y;
     out.getContext('2d').drawImage(cv, 0, 0);
